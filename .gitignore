@@ -1,0 +1,86 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+UserData/
+**/UserData/
+accounts.json
+**/accounts.json
+app_config.json
+**/app_config.json
+
+# Private research materials
+角薫研究所/
+
+# Runtime logs and generated test artifacts
+logs/
+**/logs/
+*.log
+*.log.*
+Server/test_*
+Server/test/
+Server/tests/
+Server/.pytest_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.jsonl
+*.tmp
+
+# Python generated files
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+.mypy_cache/
+.ruff_cache/
+
+# Unity generated directories
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Unity and IDE generated files
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+.vs/
+.idea/
+.vscode/
+
+# Build artifacts
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# Unity crash and diagnostic files
+sysinfo.txt
+crashlytics-build.properties
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini

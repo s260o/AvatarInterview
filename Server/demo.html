@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>面接デモ — アバターインタビュアー</title>
+<style>
+  :root {
+    --orange:      #C8612A;
+    --orange-mid:  #E07A47;
+    --orange-dark: #A04E20;
+    --orange-ll:   #FDF0E8;
+    --dark:   #2A1508;
+    --body:   #5C3A26;
+    --muted:  #9B7060;
+    --bg:     #F2EDE8;
+    --card:   #FEF4ED;
+    --line:   #EDCFB8;
+    --done:   #4E8A3A;
+    --blue:   #5580CC;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+    background: var(--bg);
+    color: var(--dark);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: #fff;
+    border-bottom: 1px solid var(--line);
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  header .title { font-size: 20px; font-weight: 700; color: var(--dark); }
+  header .sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .accent { height: 5px; background: linear-gradient(90deg, var(--orange-dark), var(--orange-mid), #F9D0B0); flex-shrink: 0; }
+
+  .status-pill {
+    font-size: 13px; font-weight: 700;
+    padding: 6px 16px; border-radius: 20px;
+    background: var(--card); color: var(--muted);
+    border: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .status-pill.busy   { background: var(--orange-ll); color: var(--orange-dark); border-color: var(--orange-mid); }
+  .status-pill.rec    { background: #FDE8E8; color: #C0392B; border-color: #E74C3C; }
+  .status-pill.ready  { background: #EAF5E4; color: var(--done); border-color: var(--done); }
+
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  /* ── 左：アバター ── */
+  .avatar-panel {
+    background: #fff;
+    border-right: 1px solid var(--line);
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+  .face {
+    width: 160px; height: 160px;
+    border-radius: 50%;
+    background: linear-gradient(160deg, #FDEEE2, #F9D0B0);
+    border: 3px solid var(--orange-mid);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 84px;
+    transition: transform 0.2s ease;
+  }
+  .face.speaking { animation: pulse 0.7s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+
+  .expr-label {
+    font-size: 15px; font-weight: 700;
+    color: var(--orange-dark);
+    background: var(--orange-ll);
+    padding: 6px 18px; border-radius: 20px;
+  }
+  .avatar-name { font-size: 13px; color: var(--muted); text-align: center; line-height: 1.7; }
+
+  /* ── 右：会話 ── */
+  .chat-panel { display: flex; flex-direction: column; overflow: hidden; }
+  .log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 22px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .msg { max-width: 76%; padding: 11px 16px; border-radius: 14px; font-size: 15px; line-height: 1.6; }
+  .msg.user { align-self: flex-end; background: var(--orange); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.bot  { align-self: flex-start; background: #fff; color: var(--dark); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .msg.sys  { align-self: center; background: transparent; color: var(--muted); font-size: 12px; font-style: italic; }
+  .msg .who { font-size: 11px; font-weight: 700; opacity: 0.7; margin-bottom: 3px; }
+
+  /* ── 入力エリア ── */
+  .input-bar {
+    border-top: 1px solid var(--line);
+    background: #fff;
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .mic-row { display: flex; align-items: center; gap: 16px; }
+  .mic-btn {
+    flex: 1;
+    padding: 18px;
+    font-size: 17px; font-weight: 700;
+    color: #fff; background: var(--orange);
+    border: none; border-radius: 14px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease, transform 0.1s ease;
+  }
+  .mic-btn:hover { background: var(--orange-dark); }
+  .mic-btn:active, .mic-btn.recording { background: #C0392B; transform: scale(0.99); }
+  .mic-btn:disabled { background: var(--muted); cursor: not-allowed; opacity: 0.6; }
+
+  .text-row { display: flex; gap: 10px; }
+  .text-row input {
+    flex: 1;
+    padding: 11px 14px;
+    font-size: 15px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-family: inherit;
+  }
+  .text-row input:focus { outline: none; border-color: var(--orange-mid); }
+  .send-btn {
+    padding: 11px 22px;
+    font-size: 15px; font-weight: 700;
+    color: var(--orange-dark); background: var(--orange-ll);
+    border: 1px solid var(--orange-mid); border-radius: 10px;
+    cursor: pointer;
+  }
+  .send-btn:hover { background: #FBE3D2; }
+  .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .hint { font-size: 12px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="accent"></div>
+<header>
+  <div>
+    <div class="title">🎤 面接デモ — アバターインタビュアー</div>
+    <div class="sub">角薫研究室 / OpenAI API（Whisper + gpt-4o-mini + TTS）動作デモ</div>
+  </div>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <button id="resetBtn" style="font-size:13px; font-weight:700; padding:6px 16px; border-radius:20px; background:#fff; color:var(--muted); border:1px solid var(--line); cursor:pointer;">↺ 面接をリセット</button>
+    <div class="status-pill ready" id="status">準備完了</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- 左：アバター -->
+  <div class="avatar-panel">
+    <div class="face" id="face">🙂</div>
+    <div class="expr-label" id="exprLabel">表情：—</div>
+    <div class="avatar-name">
+      面接官アバター<br>
+      <span style="font-size:11px;">下のボタンを押しながら話し、<br>離すと回答が送信されます</span>
+    </div>
+  </div>
+
+  <!-- 右：会話ログ＋入力 -->
+  <div class="chat-panel">
+    <div class="log" id="log"></div>
+
+    <div class="input-bar">
+      <div class="mic-row">
+        <button class="mic-btn" id="micBtn">🎙 押している間だけ録音（Hold to Talk）</button>
+      </div>
+      <div class="text-row">
+        <input type="text" id="textInput" placeholder="マイクが使えない場合はここに入力して送信…">
+        <button class="send-btn" id="sendBtn">送信</button>
+      </div>
+      <div class="hint" id="hint">※ 初回はブラウザのマイク使用許可が求められます</div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+(function () {
+  // API ベース：このページを配信しているサーバーと同一オリジン
+  const API = window.location.origin;
+
+  // 会話履歴はサーバー側（SESSION）が保持する。クライアントは今回の1発話だけ送る。
+  let isBusy = false;         // 多重リクエスト防止ロック（研究室ルール第7条）
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let mediaStream = null;
+
+  const logEl    = document.getElementById('log');
+  const statusEl = document.getElementById('status');
+  const faceEl   = document.getElementById('face');
+  const exprEl   = document.getElementById('exprLabel');
+  const micBtn   = document.getElementById('micBtn');
+  const sendBtn  = document.getElementById('sendBtn');
+  const textIn   = document.getElementById('textInput');
+  const hintEl   = document.getElementById('hint');
+
+  // ── 表情ラベル → 顔文字マッピング（雰囲気づけ用。ラベル文字も併記表示する）──
+  function exprToEmoji(label) {
+    if (!label) return '🙂';
+    if (/(笑顔|にこ|好意|優しい|安心|嬉|楽|感謝|会釈|受容)/.test(label)) return '😊';
+    if (/(真剣|厳しい|真顔)/.test(label)) return '🧐';
+    if (/(うなずき|感心|落ち着|穏やか)/.test(label)) return '🙂';
+    if (/(疑問|確認)/.test(label)) return '🤔';
+    if (/(困り|苦笑|眉|沈黙)/.test(label)) return '😐';
+    return '🙂';
+  }
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = 'status-pill ' + (cls || '');
+  }
+
+  function addMsg(text, who) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + who;
+    if (who === 'sys') {
+      div.textContent = text;
+    } else {
+      const label = document.createElement('div');
+      label.className = 'who';
+      label.textContent = (who === 'user') ? 'あなた' : '面接官';
+      const body = document.createElement('div');
+      body.textContent = text;
+      div.appendChild(label);
+      div.appendChild(body);
+    }
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setExpression(label) {
+    exprEl.textContent = '表情：' + (label || '—');
+    faceEl.textContent = exprToEmoji(label);
+  }
+
+  function lock(busy) {
+    isBusy = busy;
+    micBtn.disabled = busy;
+    sendBtn.disabled = busy;
+    textIn.disabled = busy;
+  }
+
+  // ── ① /api/interview（テキスト→応答＋表情）──
+  //   サーバー側が履歴を記憶するため、今回の1発話だけを送る（message）
+  async function callInterview(userText) {
+    addMsg(userText, 'user');
+
+    setStatus('面接官が考え中…', 'busy');
+    const res = await fetch(API + '/api/interview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: userText })
+    });
+    if (!res.ok) throw new Error('interview ' + res.status);
+    const data = await res.json();
+
+    addMsg(data.text, 'bot');
+    setExpression(data.expression);
+
+    await speak(data.text);
+  }
+
+  // ── 面接をリセット（サーバー側の履歴もクリア）──
+  async function resetInterview() {
+    if (isBusy) return;
+    lock(true);
+    try {
+      await fetch(API + '/api/reset', { method: 'POST' });
+      logEl.innerHTML = '';
+      addMsg('面接をリセットしました。新しい面接を始めます。', 'sys');
+      setExpression('穏やかな笑顔');
+      setStatus('準備完了', 'ready');
+    } catch (e) {
+      addMsg('[エラー] ' + e.message, 'sys');
+    } finally {
+      lock(false);
+    }
+  }
+
+  // ── ② /api/tts（テキスト→音声再生）──
+  async function speak(text) {
+    setStatus('音声を生成中…', 'busy');
+    const res = await fetch(API + '/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    if (!res.ok) throw new Error('tts ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+
+    faceEl.classList.add('speaking');
+    setStatus('面接官が話しています…', 'busy');
+    await new Promise((resolve) => {
+      audio.onended = resolve;
+      audio.onerror = resolve;
+      audio.play().catch(resolve);
+    });
+    faceEl.classList.remove('speaking');
+    URL.revokeObjectURL(url);
+  }
+
+  // ── ③ /api/stt（音声→テキスト）→ その後 interview ──
+  async function transcribeAndReply(blob) {
+    setStatus('文字起こし中…', 'busy');
+    const fd = new FormData();
+    fd.append('audio', blob, 'audio.webm');
+    const res = await fetch(API + '/api/stt', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('stt ' + res.status);
+    const data = await res.json();
+    const text = (data.text || '').trim();
+    if (!text) {
+      addMsg('（音声を認識できませんでした。もう一度お試しください）', 'sys');
+      return;
+    }
+    await callInterview(text);
+  }
+
+  // ── テキスト送信 ──
+  async function sendText() {
+    if (isBusy) return;
+    const text = textIn.value.trim();
+    if (!text) return;
+    textIn.value = '';
+    lock(true);
+    try {
+      await callInterview(text);
+      setStatus('準備完了', 'ready');
+    } catch (e) {
+      addMsg('[エラー] ' + e.message, 'sys');
+      setStatus('エラー: ' + e.message, '');
+    } finally {
+      lock(false);
+    }
+  }
+
+  sendBtn.addEventListener('click', sendText);
+  textIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendText(); });
+  document.getElementById('resetBtn').addEventListener('click', resetInterview);
+
+  // ── マイク録音（Hold to Talk）──
+  async function startRecording() {
+    if (isBusy) return;
+    try {
+      if (!mediaStream) {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(mediaStream);
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = onRecordingStop;
+      mediaRecorder.start();
+      micBtn.classList.add('recording');
+      micBtn.textContent = '● 録音中… 離すと送信';
+      setStatus('録音中…', 'rec');
+    } catch (e) {
+      hintEl.textContent = 'マイクを使用できません: ' + e.message + '（テキスト入力をご利用ください）';
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+    micBtn.classList.remove('recording');
+    micBtn.textContent = '🎙 押している間だけ録音（Hold to Talk）';
+  }
+
+  async function onRecordingStop() {
+    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+    if (blob.size < 1200) {   // ほぼ無音（短すぎ）はスキップ
+      setStatus('準備完了', 'ready');
+      return;
+    }
+    lock(true);
+    try {
+      await transcribeAndReply(blob);
+      setStatus('準備完了', 'ready');
+    } catch (e) {
+      addMsg('[エラー] ' + e.message, 'sys');
+      setStatus('エラー: ' + e.message, '');
+    } finally {
+      lock(false);
+    }
+  }
+
+  // マウス／タッチ両対応
+  micBtn.addEventListener('mousedown', startRecording);
+  micBtn.addEventListener('mouseup', stopRecording);
+  micBtn.addEventListener('mouseleave', stopRecording);
+  micBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startRecording(); });
+  micBtn.addEventListener('touchend',   (e) => { e.preventDefault(); stopRecording(); });
+
+  // ── 初期メッセージ ──
+  addMsg('面接官の準備ができました。マイクボタンを押しながら「よろしくお願いします」と話しかけてみてください。', 'sys');
+  setExpression('穏やかな笑顔');
+})();
+</script>
+</body>
+</html>
