@@ -161,7 +161,7 @@
 <header>
   <div>
     <div class="title">🎤 面接デモ — アバターインタビュアー</div>
-    <div class="sub">角薫研究室 / OpenAI API（Whisper + gpt-4o-mini + TTS）動作デモ</div>
+    <div class="sub">角薫研究室 / Gemini API（Transcribe + Flash + TTS）動作デモ</div>
   </div>
   <div style="display:flex; align-items:center; gap:12px;">
     <button id="resetBtn" style="font-size:13px; font-weight:700; padding:6px 16px; border-radius:20px; background:#fff; color:var(--muted); border:1px solid var(--line); cursor:pointer;">↺ 面接をリセット</button>
@@ -206,9 +206,12 @@
 
   // 会話履歴はサーバー側（SESSION）が保持する。クライアントは今回の1発話だけ送る。
   let isBusy = false;         // 多重リクエスト防止ロック（研究室ルール第7条）
-  let mediaRecorder = null;
-  let audioChunks = [];
   let mediaStream = null;
+  let audioContext = null;
+  let inputNode = null;
+  let processorNode = null;
+  let recordedChunks = [];
+  let recordingSampleRate = 48000;
 
   const logEl    = document.getElementById('log');
   const statusEl = document.getElementById('status');
@@ -330,7 +333,7 @@
   async function transcribeAndReply(blob) {
     setStatus('文字起こし中…', 'busy');
     const fd = new FormData();
-    fd.append('audio', blob, 'audio.webm');
+    fd.append('audio', blob, 'audio.wav');
     const res = await fetch(API + '/api/stt', { method: 'POST', body: fd });
     if (!res.ok) throw new Error('stt ' + res.status);
     const data = await res.json();
@@ -371,11 +374,16 @@
       if (!mediaStream) {
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
-      audioChunks = [];
-      mediaRecorder = new MediaRecorder(mediaStream);
-      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
-      mediaRecorder.onstop = onRecordingStop;
-      mediaRecorder.start();
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      recordingSampleRate = audioContext.sampleRate;
+      recordedChunks = [];
+      inputNode = audioContext.createMediaStreamSource(mediaStream);
+      processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+      processorNode.onaudioprocess = (event) => {
+        recordedChunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      };
+      inputNode.connect(processorNode);
+      processorNode.connect(audioContext.destination);
       micBtn.classList.add('recording');
       micBtn.textContent = '● 録音中… 離すと送信';
       setStatus('録音中…', 'rec');
@@ -385,15 +393,58 @@
   }
 
   function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
-    }
+    if (!processorNode) return;
+
+    processorNode.disconnect();
+    inputNode.disconnect();
+    processorNode.onaudioprocess = null;
+    processorNode = null;
+    inputNode = null;
+
+    const blob = encodeWav(recordedChunks, recordingSampleRate);
+    recordedChunks = [];
+    audioContext.close();
+    audioContext = null;
+
     micBtn.classList.remove('recording');
     micBtn.textContent = '🎙 押している間だけ録音（Hold to Talk）';
+    onRecordingStop(blob);
   }
 
-  async function onRecordingStop() {
-    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+  function encodeWav(chunks, sampleRate) {
+    const frameCount = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const buffer = new ArrayBuffer(44 + frameCount * 2);
+    const view = new DataView(buffer);
+    const writeAscii = (offset, value) => {
+      for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+    };
+
+    writeAscii(0, 'RIFF');
+    view.setUint32(4, 36 + frameCount * 2, true);
+    writeAscii(8, 'WAVE');
+    writeAscii(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);       // PCM
+    view.setUint16(22, 1, true);       // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(36, 'data');
+    view.setUint32(40, frameCount * 2, true);
+
+    let offset = 44;
+    for (const chunk of chunks) {
+      for (const sample of chunk) {
+        const clipped = Math.max(-1, Math.min(1, sample));
+        view.setInt16(offset, clipped < 0 ? clipped * 0x8000 : clipped * 0x7fff, true);
+        offset += 2;
+      }
+    }
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+
+  async function onRecordingStop(blob) {
     if (blob.size < 1200) {   // ほぼ無音（短すぎ）はスキップ
       setStatus('準備完了', 'ready');
       return;
