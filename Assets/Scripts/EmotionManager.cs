@@ -1,6 +1,9 @@
-using System.Collections;
+ï»¿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 using VRM;
 
 public class VrmExpressionApplier : MonoBehaviour
@@ -9,7 +12,7 @@ public class VrmExpressionApplier : MonoBehaviour
     public VRMBlendShapeProxy proxy;
 
     [Header("Reset settings")]
-    [Tooltip("ŒûƒpƒN(A/I/U/E/O)‚ğƒŠƒZƒbƒg‚µ‚È‚¢i•Ê§Œä‚µ‚½‚¢ê‡ONj")]
+    [Tooltip("å£ãƒ‘ã‚¯(A/I/U/E/O)ã‚’ãƒªã‚»ãƒƒãƒˆã—ãªã„ï¼ˆåˆ¥åˆ¶å¾¡ã—ãŸã„å ´åˆONï¼‰")]
     public bool keepLipSync = true;
 
     [Header("Test (OnGUI)")]
@@ -17,7 +20,7 @@ public class VrmExpressionApplier : MonoBehaviour
     public bool enableKeyboardTest = true;
 
     [Header("Auto Demo")]
-    [Tooltip("”•b‚²‚Æ‚É•\î‚ğ©“®‚ÅØ‚è‘Ö‚¦‚éƒfƒ‚")]
+    [Tooltip("æ•°ç§’ã”ã¨ã«è¡¨æƒ…ã‚’è‡ªå‹•ã§åˆ‡ã‚Šæ›¿ãˆã‚‹ãƒ‡ãƒ¢")]
     public bool enableAutoDemo = false;
     [Range(0.2f, 10f)]
     public float autoDemoInterval = 2.0f;
@@ -32,8 +35,9 @@ public class VrmExpressionApplier : MonoBehaviour
     public NonverbalLevel currentLevel = NonverbalLevel.High;
     [Range(0f, 2f)]
     public float expressionIntensityHigh = 1.0f;
+    [Tooltip("Lowæ¡ä»¶ã¯å ±å‘Šæ›¸ã®å®šç¾©ã«å¾“ã„ç„¡è¡¨æƒ…ï¼ˆ0ï¼‰ã€‚è¡¨æƒ…ã‚’å‡ºã•ãªã„ã€‚")]
     [Range(0f, 2f)]
-    public float expressionIntensityLow = 0.55f;
+    public float expressionIntensityLow = 0.0f;
 
     [Header("Preset Targets (optional)")]
     public PerfectInterviewer interviewer;
@@ -41,17 +45,17 @@ public class VrmExpressionApplier : MonoBehaviour
 
     private float _expressionIntensity = 1.0f;
 
-    // ƒeƒXƒg—pFƒ‰ƒxƒ‹ˆê——i‚ ‚È‚½‚Ìƒvƒƒ“ƒvƒg‚Åo‚Ä‚­‚é‚à‚Ì’†Sj
+    // ãƒ†ã‚¹ãƒˆç”¨ï¼šãƒ©ãƒ™ãƒ«ä¸€è¦§ï¼ˆã‚ãªãŸã®ãƒ—ãƒ­ãƒ³ãƒ—ãƒˆã§å‡ºã¦ãã‚‹ã‚‚ã®ä¸­å¿ƒï¼‰
     private readonly string[] _labels =
     {
-        "ÎŠç", "‰¸‚â‚©‚ÈÎŠç", "‚É‚±‚â‚©",
-        "‰¸‚â‚©", "—‚¿’…‚¢‚½", "^Šç",
-        "‚¤‚È‚¸‚«", "Š´S", "DˆÓ“I‚ÈÎŠç",
-        "^Œ•", "­‚µ‹^–â", "Šm”F‚·‚é‚æ‚¤‚È•\î",
-        "¢‚èŠç", "‹êÎ‚¢", "”û‚ğ‚Ğ‚»‚ß‚é",
-        "Œµ‚µ‚¢", "^Œ•i‹­‚ßj", "’¾–Ùi”•bj",
-        "—D‚µ‚¢", "ó—e“I", "ˆÀS‚³‚¹‚éÎŠç",
-        "’š”J‚ÈÎŠç", "Š´Ó", "‰ïß"
+        "ç¬‘é¡”", "ç©ã‚„ã‹ãªç¬‘é¡”", "ã«ã“ã‚„ã‹",
+        "ç©ã‚„ã‹", "è½ã¡ç€ã„ãŸ", "çœŸé¡”",
+        "ã†ãªãšã", "æ„Ÿå¿ƒ", "å¥½æ„çš„ãªç¬‘é¡”",
+        "çœŸå‰£", "å°‘ã—ç–‘å•", "ç¢ºèªã™ã‚‹ã‚ˆã†ãªè¡¨æƒ…",
+        "å›°ã‚Šé¡”", "è‹¦ç¬‘ã„", "çœ‰ã‚’ã²ãã‚ã‚‹",
+        "å³ã—ã„", "çœŸå‰£ï¼ˆå¼·ã‚ï¼‰", "æ²ˆé»™ï¼ˆæ•°ç§’ï¼‰",
+        "å„ªã—ã„", "å—å®¹çš„", "å®‰å¿ƒã•ã›ã‚‹ç¬‘é¡”",
+        "ä¸å¯§ãªç¬‘é¡”", "æ„Ÿè¬", "ä¼šé‡ˆ"
     };
 
     private int _selectedIndex = 0;
@@ -77,27 +81,30 @@ public class VrmExpressionApplier : MonoBehaviour
 
     void Update()
     {
-#if UNITY_EDITOR
+#if UNITY_EDITOR && ENABLE_INPUT_SYSTEM
 
         if (!enableKeyboardTest) return;
 
-        // ƒL[‚ÅŠÈ’PƒeƒXƒg
-        // 1: ÎŠç  2: ^Šç  3: Š´S  4: ¢‚èŠç  5: Œµ‚µ‚¢  6: —D‚µ‚¢  7: ‚Ü‚Î‚½‚«
-        if (Input.GetKeyDown(KeyCode.Alpha1)) ApplyLabel("ÎŠç");
-        if (Input.GetKeyDown(KeyCode.Alpha2)) ApplyLabel("^Šç");
-        if (Input.GetKeyDown(KeyCode.Alpha3)) ApplyLabel("Š´S");
-        if (Input.GetKeyDown(KeyCode.Alpha4)) ApplyLabel("¢‚èŠç");
-        if (Input.GetKeyDown(KeyCode.Alpha5)) ApplyLabel("Œµ‚µ‚¢");
-        if (Input.GetKeyDown(KeyCode.Alpha6)) ApplyLabel("—D‚µ‚¢");
-        if (Input.GetKeyDown(KeyCode.Alpha7)) StartCoroutine(BlinkOnce());
+        var kb = Keyboard.current;
+        if (kb == null) return;
 
-        // R: •\îƒŠƒZƒbƒg
-        if (Input.GetKeyDown(KeyCode.R)) ResetFacialOnly();
+        // ã‚­ãƒ¼ã§ç°¡å˜ãƒ†ã‚¹ãƒˆ
+        // 1: ç¬‘é¡”  2: çœŸé¡”  3: æ„Ÿå¿ƒ  4: å›°ã‚Šé¡”  5: å³ã—ã„  6: å„ªã—ã„  7: ã¾ã°ãŸã
+        if (kb.digit1Key.wasPressedThisFrame) ApplyLabel("ç¬‘é¡”");
+        if (kb.digit2Key.wasPressedThisFrame) ApplyLabel("çœŸé¡”");
+        if (kb.digit3Key.wasPressedThisFrame) ApplyLabel("æ„Ÿå¿ƒ");
+        if (kb.digit4Key.wasPressedThisFrame) ApplyLabel("å›°ã‚Šé¡”");
+        if (kb.digit5Key.wasPressedThisFrame) ApplyLabel("å³ã—ã„");
+        if (kb.digit6Key.wasPressedThisFrame) ApplyLabel("å„ªã—ã„");
+        if (kb.digit7Key.wasPressedThisFrame) StartCoroutine(BlinkOnce());
+
+        // R: è¡¨æƒ…ãƒªã‚»ãƒƒãƒˆ
+        if (kb.rKey.wasPressedThisFrame) ResetFacialOnly();
 #endif
     }
 
     /// <summary>
-    /// •¶šƒ‰ƒxƒ‹i—áFu‰¸‚â‚©vj‚ğó‚¯‚ÄVRM0.x•\î‚É”½‰f
+    /// æ–‡å­—ãƒ©ãƒ™ãƒ«ï¼ˆä¾‹ï¼šã€Œç©ã‚„ã‹ã€ï¼‰ã‚’å—ã‘ã¦VRM0.xè¡¨æƒ…ã«åæ˜ 
     /// </summary>
     public void ApplyLabel(string label)
     {
@@ -111,81 +118,81 @@ public class VrmExpressionApplier : MonoBehaviour
 
         switch (label)
         {
-            // e˜a
-            case "ÎŠç":
-            case "‰¸‚â‚©‚ÈÎŠç":
-            case "‚É‚±‚â‚©":
-            case "’š”J‚ÈÎŠç":
-            case "ˆÀS‚³‚¹‚éÎŠç":
+            // è¦ªå’Œ
+            case "ç¬‘é¡”":
+            case "ç©ã‚„ã‹ãªç¬‘é¡”":
+            case "ã«ã“ã‚„ã‹":
+            case "ä¸å¯§ãªç¬‘é¡”":
+            case "å®‰å¿ƒã•ã›ã‚‹ç¬‘é¡”":
                 Set(BlendShapePreset.Fun, 0.80f);
                 Set(BlendShapePreset.Joy, 0.30f);
                 break;
 
-            // is
-            case "‰¸‚â‚©":
-            case "—‚¿’…‚¢‚½":
-            case "^Šç":
+            // é€²è¡Œ
+            case "ç©ã‚„ã‹":
+            case "è½ã¡ç€ã„ãŸ":
+            case "çœŸé¡”":
                 Set(BlendShapePreset.Neutral, 0.85f);
                 break;
 
-            // •]‰¿
-            case "‚¤‚È‚¸‚«":
-                // –{—ˆ‚Í“ªƒ{[ƒ“‚Å•\Œ»‚ª©‘RB‚±‚±‚Å‚ÍŒy‚¢DˆÓ•\î‚¾‚¯“ü‚ê‚é
+            // è©•ä¾¡
+            case "ã†ãªãšã":
+                // æœ¬æ¥ã¯é ­ãƒœãƒ¼ãƒ³ã§è¡¨ç¾ãŒè‡ªç„¶ã€‚ã“ã“ã§ã¯è»½ã„å¥½æ„è¡¨æƒ…ã ã‘å…¥ã‚Œã‚‹
                 Set(BlendShapePreset.Joy, 0.35f);
                 Set(BlendShapePreset.Fun, 0.30f);
                 break;
-            case "Š´S":
+            case "æ„Ÿå¿ƒ":
                 Set(BlendShapePreset.Joy, 0.55f);
                 Set(BlendShapePreset.Fun, 0.20f);
                 break;
-            case "DˆÓ“I‚ÈÎŠç":
+            case "å¥½æ„çš„ãªç¬‘é¡”":
                 Set(BlendShapePreset.Fun, 0.70f);
                 Set(BlendShapePreset.Joy, 0.25f);
                 break;
 
-            // ŒŸØ
-            case "^Œ•":
+            // æ¤œè¨¼
+            case "çœŸå‰£":
                 Set(BlendShapePreset.Neutral, 0.90f);
                 break;
-            case "­‚µ‹^–â":
-            case "Šm”F‚·‚é‚æ‚¤‚È•\î":
-                // •W€ƒvƒŠƒZƒbƒg‚¾‚¯‚¾‚Æ“ï‚µ‚¢‚Ì‚ÅNeutral{­‚µAngry‚Å‘ã—p
+            case "å°‘ã—ç–‘å•":
+            case "ç¢ºèªã™ã‚‹ã‚ˆã†ãªè¡¨æƒ…":
+                // æ¨™æº–ãƒ—ãƒªã‚»ãƒƒãƒˆã ã‘ã ã¨é›£ã—ã„ã®ã§Neutralï¼‹å°‘ã—Angryã§ä»£ç”¨
                 Set(BlendShapePreset.Neutral, 0.80f);
                 Set(BlendShapePreset.Angry, 0.20f);
                 break;
 
-            // Œœ”O
-            case "¢‚èŠç":
-            case "”û‚ğ‚Ğ‚»‚ß‚é":
+            // æ‡¸å¿µ
+            case "å›°ã‚Šé¡”":
+            case "çœ‰ã‚’ã²ãã‚ã‚‹":
                 Set(BlendShapePreset.Sorrow, 0.50f);
                 Set(BlendShapePreset.Angry, 0.25f);
                 break;
-            case "‹êÎ‚¢":
+            case "è‹¦ç¬‘ã„":
                 Set(BlendShapePreset.Fun, 0.35f);
                 Set(BlendShapePreset.Sorrow, 0.25f);
                 break;
 
-            // Œx
-            case "Œµ‚µ‚¢":
-            case "^Œ•i‹­‚ßj":
+            // è­¦å‘Š
+            case "å³ã—ã„":
+            case "çœŸå‰£ï¼ˆå¼·ã‚ï¼‰":
                 Set(BlendShapePreset.Angry, 0.60f);
                 Set(BlendShapePreset.Neutral, 0.40f);
                 break;
-            case "’¾–Ùi”•bj":
+            case "æ²ˆé»™ï¼ˆæ•°ç§’ï¼‰":
                 Set(BlendShapePreset.Neutral, 0.90f);
                 break;
 
-            // ‹~Ï
-            case "—D‚µ‚¢":
-            case "ó—e“I":
-            case "Š´Ó":
-            case "‰ïß":
+            // æ•‘æ¸ˆ
+            case "å„ªã—ã„":
+            case "å—å®¹çš„":
+            case "æ„Ÿè¬":
+            case "ä¼šé‡ˆ":
                 Set(BlendShapePreset.Fun, 0.55f);
                 Set(BlendShapePreset.Neutral, 0.20f);
                 break;
 
             default:
-                // –¢’m‚Íƒjƒ…[ƒgƒ‰ƒ‹
+                // æœªçŸ¥ã¯ãƒ‹ãƒ¥ãƒ¼ãƒˆãƒ©ãƒ«
                 Set(BlendShapePreset.Neutral, 0.70f);
                 break;
         }
@@ -222,13 +229,13 @@ public class VrmExpressionApplier : MonoBehaviour
     }
 
     /// <summary>
-    /// •\îŒn‚Ì‚İƒŠƒZƒbƒgiŒûƒpƒN‚ğc‚·‚©‚Í keepLipSync ‚Å§Œäj
+    /// è¡¨æƒ…ç³»ã®ã¿ãƒªã‚»ãƒƒãƒˆï¼ˆå£ãƒ‘ã‚¯ã‚’æ®‹ã™ã‹ã¯ keepLipSync ã§åˆ¶å¾¡ï¼‰
     /// </summary>
     public void ResetFacialOnly()
     {
         if (proxy == null) return;
 
-        // •\îŒn
+        // è¡¨æƒ…ç³»
         proxy.SetValue(BlendShapePreset.Angry, 0f);
         proxy.SetValue(BlendShapePreset.Sorrow, 0f);
         proxy.SetValue(BlendShapePreset.Fun, 0f);
@@ -238,7 +245,7 @@ public class VrmExpressionApplier : MonoBehaviour
         proxy.SetValue(BlendShapePreset.Blink_L, 0f);
         proxy.SetValue(BlendShapePreset.Blink_R, 0f);
 
-        // ŒûƒpƒNŒn‚à—‚Æ‚µ‚½‚¢ê‡
+        // å£ãƒ‘ã‚¯ç³»ã‚‚è½ã¨ã—ãŸã„å ´åˆ
         if (!keepLipSync)
         {
             proxy.SetValue(BlendShapePreset.A, 0f);
@@ -252,13 +259,13 @@ public class VrmExpressionApplier : MonoBehaviour
     }
 
     /// <summary>
-    /// ƒeƒXƒg—pFˆê‰ñ‚¾‚¯u‚«‚ğ“ü‚ê‚é
+    /// ãƒ†ã‚¹ãƒˆç”¨ï¼šä¸€å›ã ã‘ç¬ãã‚’å…¥ã‚Œã‚‹
     /// </summary>
     private IEnumerator BlinkOnce()
     {
         if (proxy == null) yield break;
 
-        // •\î‚Í•Û‚µ‚½‚Ü‚Üu‚«‚¾‚¯‘«‚·iBlink‚Ì‚İˆê“I‚Éã‚°‚éj
+        // è¡¨æƒ…ã¯ä¿æŒã—ãŸã¾ã¾ç¬ãã ã‘è¶³ã™ï¼ˆBlinkã®ã¿ä¸€æ™‚çš„ã«ä¸Šã’ã‚‹ï¼‰
         float t = 0f;
         float dur = 0.10f;
         while (t < dur)
@@ -309,7 +316,7 @@ public class VrmExpressionApplier : MonoBehaviour
         }
         _demoCo = null;
     }
-    // ===== Canvas UI —pŒöŠJƒwƒ‹ƒp[ =====
+    // ===== Canvas UI ç”¨å…¬é–‹ãƒ˜ãƒ«ãƒ‘ãƒ¼ =====
     public string GetLastApplied() => _lastApplied;
     public string GetSelectedLabel() => _labels[Mathf.Clamp(_selectedIndex, 0, _labels.Length - 1)];
     public void SelectPrevLabel() { _selectedIndex = (_selectedIndex - 1 + _labels.Length) % _labels.Length; }
@@ -348,7 +355,7 @@ public class VrmExpressionApplier : MonoBehaviour
         if (interviewer != null)
         {
             GUILayout.Space(2);
-            bool nextLeaning = GUILayout.Toggle(interviewer.enableLeaning, "Leaning (‘OŒX) ON", GUILayout.Width(160));
+            bool nextLeaning = GUILayout.Toggle(interviewer.enableLeaning, "Leaning (å‰å‚¾) ON", GUILayout.Width(160));
             if (nextLeaning != interviewer.enableLeaning)
                 interviewer.SetLeaningEnabled(nextLeaning);
 
@@ -366,7 +373,7 @@ public class VrmExpressionApplier : MonoBehaviour
         if (proxy == null)
         {
             GUI.color = Color.yellow;
-            GUILayout.Label("proxy ‚ª–¢İ’è‚Å‚·BVRMBlendShapeProxy‚ğŠ„‚è“–‚Ä‚Ä‚­‚¾‚³‚¢B");
+            GUILayout.Label("proxy ãŒæœªè¨­å®šã§ã™ã€‚VRMBlendShapeProxyã‚’å‰²ã‚Šå½“ã¦ã¦ãã ã•ã„ã€‚");
             GUI.color = Color.white;
         }
         else
@@ -378,7 +385,7 @@ public class VrmExpressionApplier : MonoBehaviour
         GUILayout.Label($"Last Applied: {_lastApplied}");
 
         GUILayout.Space(10);
-        GUILayout.Label("‘I‘ğ’†‚Ì•\îƒ‰ƒxƒ‹F");
+        GUILayout.Label("é¸æŠä¸­ã®è¡¨æƒ…ãƒ©ãƒ™ãƒ«ï¼š");
         _selectedIndex = Mathf.Clamp(_selectedIndex, 0, _labels.Length - 1);
         GUILayout.BeginHorizontal();
         if (GUILayout.Button("<<", GUILayout.Width(50))) _selectedIndex = (_selectedIndex - 1 + _labels.Length) % _labels.Length;
@@ -407,7 +414,7 @@ public class VrmExpressionApplier : MonoBehaviour
 
         GUILayout.Space(10);
         GUILayout.Label("Keyboard:");
-        GUILayout.Label("1:ÎŠç 2:^Šç 3:Š´S 4:¢‚èŠç 5:Œµ‚µ‚¢ 6:—D‚µ‚¢ 7:u‚«  R:ƒŠƒZƒbƒg");
+        GUILayout.Label("1:ç¬‘é¡” 2:çœŸé¡” 3:æ„Ÿå¿ƒ 4:å›°ã‚Šé¡” 5:å³ã—ã„ 6:å„ªã—ã„ 7:ç¬ã  R:ãƒªã‚»ãƒƒãƒˆ");
 
         GUILayout.Space(10);
         GUILayout.BeginHorizontal();

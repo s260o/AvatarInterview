@@ -19,7 +19,8 @@ public class UdpReceiver : MonoBehaviour
 
     [Header("Non-verbal Behavior Presets (High / Low)")]
     public float movementScaleHigh = 5.0f;
-    public float movementScaleLow = 2.0f;
+    // Low条件は報告書の定義に従い正面固定（顔追従スケール 0）
+    public float movementScaleLow = 0.0f;
 
     public void ApplyPreset(bool isHigh)
     {

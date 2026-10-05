@@ -24,6 +24,8 @@ public class PerfectInterviewer : MonoBehaviour
     public class NonverbalSettings
     {
         [Header("視線制御")]
+        [Tooltip("相手を追って視線・頭を動かすか。Low条件では false にして正面固定にする。")]
+        public bool gazeFollow = true;
         public float turnSpeed = 5.0f;
         public float maxHeadAngle = 80.0f;
 
@@ -34,8 +36,11 @@ public class PerfectInterviewer : MonoBehaviour
         public float voiceHangover = 0.25f;
         [Tooltip("音量の平滑化（指数移動平均）の追従速度。大きいほど素早く追従。")]
         public float volumeSmoothing = 10f;
-        [Tooltip("相手が話している間に頷く頻度（秒）。小さいほど頻繁。")]
-        public float nodInterval = 1.8f;
+        [Tooltip("うなずきを行うか。Low条件では false にして頷かせない（報告書の定義）。")]
+        public bool nodEnabled = true;
+        [Tooltip("うなずき間隔をこの範囲(秒)でランダムに選ぶ。報告書 High = 0.5〜2.0秒。")]
+        public float nodIntervalMin = 0.5f;
+        public float nodIntervalMax = 2.0f;
         public float nodAngle = 15f;
         [Tooltip("1回の頷きの所要時間（秒）。")]
         public float nodDuration = 0.45f;
@@ -47,17 +52,21 @@ public class PerfectInterviewer : MonoBehaviour
 
     [Header("Non-verbal Behavior Presets (High / Low)")]
     public NonverbalSettings high = new NonverbalSettings();
+    // 報告書 2026/06/18 の定義に忠実な Low：頷きなし・正面固定視線・無表情・静止姿勢
     public NonverbalSettings low = new NonverbalSettings
     {
-        turnSpeed = 2.5f,
-        maxHeadAngle = 45.0f,
+        gazeFollow = false,      // 正面固定（相手を追わない）
+        turnSpeed = 2.5f,        // gazeFollow=false のため実質未使用
+        maxHeadAngle = 45.0f,    // 同上
         volumeThreshold = 0.03f,
         voiceHangover = 0.20f,
         volumeSmoothing = 8f,
-        nodInterval = 4.5f,
+        nodEnabled = false,      // 頷かない
+        nodIntervalMin = 0.5f,
+        nodIntervalMax = 2.0f,
         nodAngle = 6.0f,
         nodDuration = 0.55f,
-        leanAngle = 5.0f,
+        leanAngle = 0.0f,        // 静止姿勢（前傾しない）
         leanSpeed = 1.2f
     };
 
@@ -67,6 +76,7 @@ public class PerfectInterviewer : MonoBehaviour
     // --- 設定：ターゲット（視線） ---
     [Header("視線制御")]
     public Transform target; // FaceTarget（赤い玉）
+    public bool gazeFollow = true; // false で正面固定（Low条件）
     public float turnSpeed = 5.0f; // 追従スピード
     public float maxHeadAngle = 80.0f;
 
@@ -79,7 +89,9 @@ public class PerfectInterviewer : MonoBehaviour
     public float volumeThreshold = 0.02f;
     public float voiceHangover = 0.25f;
     public float volumeSmoothing = 10f;
-    public float nodInterval = 1.8f;
+    public bool nodEnabled = true;      // false で頷かない（Low条件）
+    public float nodIntervalMin = 0.5f; // うなずき間隔の下限（秒）
+    public float nodIntervalMax = 2.0f; // うなずき間隔の上限（秒）
     public float nodAngle = 15f;
     public float nodDuration = 0.45f;
 
@@ -94,6 +106,8 @@ public class PerfectInterviewer : MonoBehaviour
     public bool simulateListening = false;
 
     [Header("マイク設定（VoiceInterviewClient と共有）")]
+    [Tooltip("参加者マイクのデバイス名。空なら先頭デバイス。\n評価者用マイク（HumanVoiceRelay）と別デバイスになるよう明示指定する。\n使用可能デバイスは起動時に Console に出力")]
+    public string micDevice = "";
     [Tooltip("マイクのリングバッファ長（秒）。参加者の1回の発話をこの長さまで録音できる")]
     public int micBufferSeconds = 60;
     [Tooltip("マイクのサンプリングレート (Hz)")]
@@ -113,6 +127,7 @@ public class PerfectInterviewer : MonoBehaviour
     private bool isNodding = false;
     private float currentLean = 0f;
     private float nodTimer = 0f;
+    private float _currentNodInterval = 1.0f; // 次に頷くまでの間隔（毎回 min〜max でランダムに選ぶ）
 
     // 頷き計算用
     private float currentNodValue = 0f; // 今の頷き角度（0〜1〜0）
@@ -154,11 +169,22 @@ public class PerfectInterviewer : MonoBehaviour
 
     void StartMic()
     {
-        if (Microphone.devices.Length > 0)
+        if (Microphone.devices.Length == 0)
         {
-            micName = Microphone.devices[0];
-            micClip = Microphone.Start(micName, true, Mathf.Max(1, micBufferSeconds), micFrequency);
+            Debug.LogWarning("[PerfectInterviewer] マイクが見つかりません。");
+            return;
         }
+        Debug.Log("[PerfectInterviewer] 使用可能なマイク: " + string.Join(" / ", Microphone.devices));
+
+        // 参加者マイクを明示指定（空なら先頭）。指定名が見つからなければ先頭にフォールバック
+        micName = string.IsNullOrEmpty(micDevice) ? Microphone.devices[0] : micDevice;
+        if (!System.Array.Exists(Microphone.devices, d => d == micName))
+        {
+            Debug.LogWarning($"[PerfectInterviewer] 指定マイク '{micDevice}' が見つからないため先頭を使用します。");
+            micName = Microphone.devices[0];
+        }
+        micClip = Microphone.Start(micName, true, Mathf.Max(1, micBufferSeconds), micFrequency);
+        Debug.Log($"[PerfectInterviewer] 参加者マイク: {micName}");
     }
 
     // ── VoiceInterviewClient がマイクを共有するためのアクセサ ──
@@ -180,20 +206,68 @@ public class PerfectInterviewer : MonoBehaviour
         currentLevel = level;
         var s = (level == NonverbalLevel.High) ? high : low;
 
+        gazeFollow = s.gazeFollow;
         turnSpeed = s.turnSpeed;
         maxHeadAngle = s.maxHeadAngle;
         volumeThreshold = s.volumeThreshold;
         voiceHangover = Mathf.Max(0f, s.voiceHangover);
         volumeSmoothing = Mathf.Max(0.01f, s.volumeSmoothing);
-        nodInterval = Mathf.Max(0.05f, s.nodInterval);
+        nodEnabled = s.nodEnabled;
+        nodIntervalMin = Mathf.Max(0.05f, s.nodIntervalMin);
+        nodIntervalMax = Mathf.Max(nodIntervalMin, s.nodIntervalMax);
         nodAngle = s.nodAngle;
         nodDuration = Mathf.Max(0.05f, s.nodDuration);
         leanAngle = s.leanAngle;
         leanSpeed = s.leanSpeed;
 
         nodTimer = 0f;
+        _currentNodInterval = Random.Range(nodIntervalMin, nodIntervalMax);
         smoothedVolume = 0f;
         lastVoiceTime = -999f;
+    }
+
+    /// <summary>
+    /// 報告書 2026/06/18 の定義に忠実な High / Low プリセットを流し込む。
+    /// プレハブにシリアライズ済みの値を、コードの定義で上書きするために使う。
+    /// インスペクタで PerfectInterviewer を右クリック → このメニューを実行。
+    /// </summary>
+    [ContextMenu("報告書プリセットを流し込む (High / Low)")]
+    public void LoadReportPresets()
+    {
+        high = new NonverbalSettings
+        {
+            gazeFollow = true,
+            turnSpeed = 5.0f,
+            maxHeadAngle = 80.0f,
+            volumeThreshold = 0.02f,
+            voiceHangover = 0.25f,
+            volumeSmoothing = 10f,
+            nodEnabled = true,
+            nodIntervalMin = 0.5f,   // 報告書 High = 0.5〜2.0秒
+            nodIntervalMax = 2.0f,
+            nodAngle = 15f,
+            nodDuration = 0.45f,
+            leanAngle = 15.0f,
+            leanSpeed = 2.0f
+        };
+        low = new NonverbalSettings
+        {
+            gazeFollow = false,      // 正面固定
+            turnSpeed = 2.5f,
+            maxHeadAngle = 45.0f,
+            volumeThreshold = 0.03f,
+            voiceHangover = 0.20f,
+            volumeSmoothing = 8f,
+            nodEnabled = false,      // 頷かない
+            nodIntervalMin = 0.5f,
+            nodIntervalMax = 2.0f,
+            nodAngle = 6.0f,
+            nodDuration = 0.55f,
+            leanAngle = 0.0f,        // 静止
+            leanSpeed = 1.2f
+        };
+        ApplyPreset(currentLevel);
+        Debug.Log("[PerfectInterviewer] 報告書プリセット (High/Low) を流し込みました。");
     }
 
     void Update()
@@ -220,12 +294,18 @@ public class PerfectInterviewer : MonoBehaviour
         {
             isTalking = true;
 
-            // 聞いている（相手が話している）間に一定間隔で頷く
-            nodTimer += Time.deltaTime;
-            if (!isNodding && nodTimer >= nodInterval)
+            // 聞いている（相手が話している）間に頷く。
+            // 間隔は 0.5〜2.0秒の範囲で毎回ランダムに選び、機械的な等間隔を避ける。
+            // Low条件（nodEnabled=false）では一切頷かない。
+            if (nodEnabled)
             {
-                nodTimer = 0f;
-                StartCoroutine(NodRoutine());
+                nodTimer += Time.deltaTime;
+                if (!isNodding && nodTimer >= _currentNodInterval)
+                {
+                    nodTimer = 0f;
+                    _currentNodInterval = Random.Range(nodIntervalMin, nodIntervalMax);
+                    StartCoroutine(NodRoutine());
+                }
             }
         }
         else
@@ -273,7 +353,8 @@ public class PerfectInterviewer : MonoBehaviour
         // ------------------------------------------------
         // 3. 頭（Head）で「視線」と「頷き」を両方やる
         // ------------------------------------------------
-        if (headBone != null && target != null && headBone.parent != null)
+        // gazeFollow=false（Low条件）では相手を追わず、Animator の正面姿勢のまま固定する
+        if (gazeFollow && headBone != null && target != null && headBone.parent != null)
         {
             // A. まずターゲットを見る方向を決める
             currentLookPos = Vector3.Lerp(currentLookPos, target.position, Time.deltaTime * turnSpeed);

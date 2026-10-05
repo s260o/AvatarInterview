@@ -1,4 +1,4 @@
-using TMPro;
+ï»¿using TMPro;
 using UnityEngine;
 
 public class ChatUI : MonoBehaviour
@@ -13,7 +13,7 @@ public class ChatUI : MonoBehaviour
         var text = input.text;
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        client.SendUserText(text);   // © ‚±‚ê‚ª‘—M
+        client.SendUserText(text);   // â† ã“ã‚ŒãŒé€ä¿¡
         input.text = "";
         input.ActivateInputField();
     }
