@@ -4,6 +4,9 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 
 /// <summary>
 /// 音声で面接を行うクライアント。
@@ -29,6 +32,19 @@ public class VoiceInterviewClient : MonoBehaviour
         public string expression;
         public string text;
         public string raw;
+        // 準構造化面接（/api/interview/start 使用時）のみ意味を持つ
+        public string phase;      // opening / seed / probe / closing / free
+        public bool is_final;     // true なら締めの発話＝面接終了
+        public int seed_index;
+        public int question_set;
+        public float remaining_seconds;
+    }
+
+    [Serializable]
+    private class StartRequestBody
+    {
+        public int question_set;
+        public float duration_seconds;
     }
 
     [Serializable]
@@ -59,6 +75,10 @@ public class VoiceInterviewClient : MonoBehaviour
     public OVRInput.Button resetButton = OVRInput.Button.Two;
     public OVRInput.Controller resetController = OVRInput.Controller.LTouch;
 
+    [Header("有効/無効")]
+    [Tooltip("AI 面接の入力（Hold-to-Talk）を受け付けるか。人間条件（WoZ）では条件マネージャが false にする")]
+    public bool inputEnabled = true;
+
     [Header("録音")]
     [Tooltip("1 回の発話の最大録音長（秒）。暴走防止のための上限")]
     public float maxRecordSeconds = 45f;
@@ -72,6 +92,10 @@ public class VoiceInterviewClient : MonoBehaviour
 
     private int _recordStartPos = -1;
     private float _recordStartTime;
+    private bool _interviewFinished = false;   // 締めの発話が出たら true（以降は入力を受け付けない）
+
+    /// <summary>締めの発話が済み、この面接が終了しているか。</summary>
+    public bool InterviewFinished => _interviewFinished;
 
     public State CurrentState => state;
     public string GetLastUserText() => lastUserText;
@@ -98,7 +122,8 @@ public class VoiceInterviewClient : MonoBehaviour
     void Update()
     {
         // ── 録音開始 / 終了（Hold to Talk）──
-        if (state == State.Idle && OVRInput.GetDown(talkButton, talkController))
+        // inputEnabled=false（人間条件）のときは AI パイプラインへの入力を受け付けない
+        if (inputEnabled && !_interviewFinished && state == State.Idle && OVRInput.GetDown(talkButton, talkController))
             StartRecording();
 
         if (state == State.Recording)
@@ -119,11 +144,15 @@ public class VoiceInterviewClient : MonoBehaviour
         if (state == State.Idle && OVRInput.GetDown(resetButton, resetController))
             ResetInterview();
 
-#if UNITY_EDITOR
+#if UNITY_EDITOR && ENABLE_INPUT_SYSTEM
         // エディタ確認用: Space 押しっぱなしで録音、R でリセット
-        if (state == State.Idle && Input.GetKeyDown(KeyCode.Space)) StartRecording();
-        if (state == State.Recording && Input.GetKeyUp(KeyCode.Space)) StopRecordingAndSend();
-        if (state == State.Idle && Input.GetKeyDown(KeyCode.R)) ResetInterview();
+        var kb = Keyboard.current;
+        if (kb != null)
+        {
+            if (inputEnabled && !_interviewFinished && state == State.Idle && kb.spaceKey.wasPressedThisFrame) StartRecording();
+            if (state == State.Recording && kb.spaceKey.wasReleasedThisFrame) StopRecordingAndSend();
+            if (state == State.Idle && kb.rKey.wasPressedThisFrame) ResetInterview();
+        }
 #endif
     }
 
@@ -234,7 +263,14 @@ public class VoiceInterviewClient : MonoBehaviour
             yield break;
         }
         lastBotText = res.text;
-        Debug.Log($"[VoiceInterviewClient] Bot [{res.expression}]: {res.text}");
+        Debug.Log($"[VoiceInterviewClient] Bot [{res.phase}/{res.expression}] 残り{res.remaining_seconds:F0}秒: {res.text}");
+
+        // 締めの発話が返ってきたら、この面接は終了（以降の入力を受け付けない）
+        if (res.is_final)
+        {
+            _interviewFinished = true;
+            Debug.Log("[VoiceInterviewClient] 面接が終了しました（締めの発話）。");
+        }
 
         // 表情を適用（ラベルはサーバー側で EmotionManager の一覧に合わせてある）
         if (expressionApplier != null && !string.IsNullOrEmpty(res.expression))
@@ -331,6 +367,77 @@ public class VoiceInterviewClient : MonoBehaviour
         onDone(DecodeWav(req.downloadHandler.data));
     }
 
+    // ============================================================
+    // 面接の開始（準構造化モード）
+    //   サーバーが「あいさつ＋シード質問1」を逐語で返すので、
+    //   参加者が話し出す前にアバターから話し始める。
+    // ============================================================
+
+    /// <summary>面接を開始する。questionSet は面接の回（1〜4回目）。</summary>
+    public void StartInterview(int questionSet, float durationSeconds)
+    {
+        StartCoroutine(CoStartInterview(questionSet, durationSeconds));
+    }
+
+    private IEnumerator CoStartInterview(int questionSet, float durationSeconds)
+    {
+        _interviewFinished = false;
+        lastUserText = "";
+        lastBotText = "";
+        state = State.Processing;
+
+        string json = JsonUtility.ToJson(new StartRequestBody
+        {
+            question_set = questionSet,
+            duration_seconds = durationSeconds,
+        });
+
+        using var req = new UnityWebRequest($"{apiBaseUrl}/api/interview/start", "POST");
+        req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+        req.downloadHandler = new DownloadHandlerBuffer();
+        req.SetRequestHeader("Content-Type", "application/json");
+        yield return req.SendWebRequest();
+
+        if (req.result != UnityWebRequest.Result.Success)
+        {
+            Debug.LogError($"[VoiceInterviewClient] 面接開始に失敗: {req.error} / {req.downloadHandler.text}");
+            state = State.Idle;
+            yield break;
+        }
+
+        var res = JsonUtility.FromJson<VoiceApiResponse>(req.downloadHandler.text);
+        if (res == null || string.IsNullOrEmpty(res.text))
+        {
+            Debug.LogError("[VoiceInterviewClient] 面接開始の応答が空でした。");
+            state = State.Idle;
+            yield break;
+        }
+
+        lastBotText = res.text;
+        Debug.Log($"[VoiceInterviewClient] 面接開始 set={res.question_set}（想定{durationSeconds:F0}秒）: {res.text}");
+
+        if (expressionApplier != null && !string.IsNullOrEmpty(res.expression))
+            expressionApplier.ApplyLabel(res.expression);
+
+        // 冒頭のあいさつ＋シード質問1 をアバターに読ませる
+        AudioClip speech = null;
+        yield return CoTextToSpeech(res.text, c => speech = c);
+
+        if (speech != null)
+        {
+            state = State.Speaking;
+            if (interviewer != null) interviewer.suppressListening = true;
+
+            audioSource.clip = speech;
+            audioSource.Play();
+            yield return new WaitWhile(() => audioSource.isPlaying);
+
+            if (interviewer != null) interviewer.suppressListening = false;
+        }
+
+        state = State.Idle;
+    }
+
     /// <summary>面接をリセットする（サーバー側の会話履歴もクリアする）。</summary>
     public void ResetInterview()
     {
@@ -346,6 +453,7 @@ public class VoiceInterviewClient : MonoBehaviour
         {
             lastUserText = "";
             lastBotText = "";
+            _interviewFinished = false;
             Debug.Log("[VoiceInterviewClient] 面接をリセットしました。");
         }
         else
@@ -427,6 +535,12 @@ public class VoiceInterviewClient : MonoBehaviour
             {
                 dataOffset = body;
                 dataSize = size;
+
+                // ストリーミング WAV は長さが確定しないため data サイズを 0 または
+                // 0xFFFFFFFF(= -1)で送ってくる。OpenAI TTS (response_format="wav")
+                // がこれに該当するので、その場合は残りのバイト全部を音声データとみなす。
+                if (dataSize <= 0 || dataSize > wav.Length - body)
+                    dataSize = wav.Length - body;
                 break;
             }
 
@@ -455,7 +569,14 @@ public class VoiceInterviewClient : MonoBehaviour
         }
 
         channels = Mathf.Max(1, channels);
-        var clip = AudioClip.Create("TTS", sampleCount / channels, channels, sampleRate, false);
+        int frames = sampleCount / channels;
+        if (frames <= 0)
+        {
+            Debug.LogError($"[VoiceInterviewClient] WAV の音声データが空です（{wav.Length} bytes / data {dataSize} bytes）。");
+            return null;
+        }
+
+        var clip = AudioClip.Create("TTS", frames, channels, sampleRate, false);
         clip.SetData(samples, 0);
         return clip;
     }
