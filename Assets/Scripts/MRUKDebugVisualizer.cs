@@ -17,6 +17,12 @@ public class MRUKDebugVisualizer : MonoBehaviour
     [Range(0.05f, 0.3f)]
     public float markerSize = 0.12f;
 
+    [Tooltip("アンカー一覧のテキストを画面に出す（球マーカーの表示とは独立）")]
+    public bool showTextOverlay = false;
+
+    [Tooltip("アンカー 1 件ごとに Debug.Log を出す（OFF でも件数のサマリは出る）")]
+    public bool verboseLogging = false;
+
     private readonly List<GameObject> _markers = new List<GameObject>();
     private readonly List<string> _log = new List<string>();
     private bool _visible;
@@ -53,24 +59,28 @@ public class MRUKDebugVisualizer : MonoBehaviour
 
     void OnGUI()
     {
-        if (!_visible || _log.Count == 0) return;
+        if (!showTextOverlay || !_visible || _log.Count == 0) return;
 
         GUIStyle style = new GUIStyle(GUI.skin.box)
         {
-            fontSize = 22,
+            fontSize = 14,
             alignment = TextAnchor.UpperLeft
         };
         style.normal.textColor = Color.white;
 
         string header = $"MRUK Anchors ({_log.Count} 件)\n";
         string body = string.Join("\n", _log);
-        float height = 36 + _log.Count * 28f;
-        GUI.Box(new Rect(10, 10, 560, height), header + body, style);
+        float height = 24 + _log.Count * 18f;
+
+        // VrmExpressionApplier のテスト GUI が左上を使うので、こちらは右上に寄せる
+        const float width = 360f;
+        float x = Screen.width - width - 10f;
+        GUI.Box(new Rect(x, 10, width, height), header + body, style);
 
         // 凡例
-        GUIStyle legend = new GUIStyle(GUI.skin.label) { fontSize = 20 };
-        GUI.Label(new Rect(10, height + 14, 560, 28),
-            "凡例: 緑=TABLE  灰=FLOOR  青=WALL  黄=COUCH  紫=STORAGE  水=OTHER", legend);
+        GUIStyle legend = new GUIStyle(GUI.skin.label) { fontSize = 13 };
+        GUI.Label(new Rect(x, height + 14, width, 20),
+            "凡例: 緑=TABLE 灰=FLOOR 青=WALL 黄=COUCH 紫=STORAGE 水=OTHER", legend);
     }
 
     public void Visualize()
@@ -107,7 +117,7 @@ public class MRUKDebugVisualizer : MonoBehaviour
             _markers.Add(go);
 
             _log.Add($"{label}  高さ={pos.y:F2}m  ({pos.x:F2}, {pos.z:F2})");
-            Debug.Log($"[MRUK] {label} @ {pos}");
+            if (verboseLogging) Debug.Log($"[MRUK] {label} @ {pos}");
         }
 
         _visible = true;
