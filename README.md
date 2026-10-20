@@ -77,6 +77,26 @@ Open this directory from Unity Hub, then load `Assets/Scenes/SampleScene.unity`.
 
 When using a Quest device, set `Api Base Url` on `VoiceInterviewClient` to the LAN IP address of the computer running the API server.
 
+### 4. Public Access via Cloudflare Tunnel (optional)
+
+The server can be exposed as `https://api.s260o.com` through Cloudflare Tunnel, so the Quest does not need to be on the same LAN. No router or firewall changes are needed.
+
+**Authentication.** Set `API_TOKEN` in `Server/.env` (generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"`). Requests that come through the tunnel must then authenticate:
+
+- Unity: copy `Assets/ServerSettings.example.json` to `Assets/Resources/ServerSettings.json` and set `apiKey` to the same token. This file is excluded from Git. Unity sends it as `Authorization: Bearer <token>`.
+- Browser (`/experimenter`): you are redirected to `/login`; enter the token as the password. Five failed attempts lock that IP out for 10 minutes.
+- Requests made directly on the server machine (`http://localhost:8001`) skip authentication.
+
+**One-time setup** (requires `s260o.com` to use Cloudflare DNS):
+
+```powershell
+cloudflared tunnel login                                   # opens a browser; choose s260o.com
+cloudflared tunnel create avatar-interview
+cloudflared tunnel route dns avatar-interview api.s260o.com
+```
+
+**Each time:** start the API server, then in a second terminal run `Server/start_tunnel.cmd`.
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -89,7 +109,8 @@ When using a Quest device, set `Api Base Url` on `VoiceInterviewClient` to the L
 
 ## Security and Data Handling
 
-- Never commit `.env` files or API keys.
+- Never commit `.env` files or API keys. The same applies to `Assets/Resources/ServerSettings.json`.
+- The Unity token is bundled into the app build. Anyone who obtains the APK can extract it, so do not distribute builds outside the lab, and rotate `API_TOKEN` if one leaks.
 - Review the Gemini API data-use terms before sending participant recordings. Free-tier requests may be used to improve Google products.
 - Files under `Server/logs/` may contain conversation content or personal information.
 - `UserData/`, `accounts.json`, `app_config.json`, test recordings, and runtime logs are excluded from Git.

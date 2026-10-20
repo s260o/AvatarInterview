@@ -1,0 +1,4 @@
+{
+  "apiBaseUrl": "https://api.s260o.com",
+  "apiKey": "Server/.env の API_TOKEN と同じ値"
+}

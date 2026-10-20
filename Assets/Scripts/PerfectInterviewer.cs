@@ -193,6 +193,18 @@ public class PerfectInterviewer : MonoBehaviour
     public string GetMicName() => micName;
     public bool IsMicReady() => micClip != null && !string.IsNullOrEmpty(micName);
 
+    /// <summary>
+    /// マイクが止まっていたら起動し直す（他のスクリプトが同じデバイスで Microphone.End した場合など）。
+    /// 止まっていた場合は true を返す。
+    /// </summary>
+    public bool EnsureMicRecording()
+    {
+        if (!string.IsNullOrEmpty(micName) && Microphone.IsRecording(micName)) return false;
+        Debug.LogWarning($"[PerfectInterviewer] 参加者マイク '{micName}' が停止していたため再起動します。");
+        StartMic();
+        return true;
+    }
+
 #if UNITY_ANDROID && !UNITY_EDITOR
     IEnumerator WaitForMicPermission()
     {
@@ -377,6 +389,14 @@ public class PerfectInterviewer : MonoBehaviour
 
                 headBone.localRotation = lookLocal * nodLocal;
             }
+        }
+        else if (!gazeFollow && headBone != null && headBone.parent != null)
+        {
+            // Low条件：頭を体の正面に固定する。
+            // ここで上書きしないと、待機アニメーション（Sitting Idle）に含まれる頭の揺れが
+            // そのまま出て「うなずいている」ように見えてしまう。
+            Quaternion forwardWorld = Quaternion.LookRotation(transform.forward, Vector3.up);
+            headBone.localRotation = Quaternion.Inverse(headBone.parent.rotation) * forwardWorld;
         }
     }
 

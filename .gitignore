@@ -84,3 +84,12 @@ crashlytics-build.properties
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Unity のサーバー接続設定（API トークンを含む）
+Assets/Resources/ServerSettings.json
+Assets/Resources/ServerSettings.json.meta
+
+# 調査メモ・論文の抽出テキスト（未発表の研究資料・著作物を含むため公開しない）
+output/
+# 手元のバックアップ
+*.bak

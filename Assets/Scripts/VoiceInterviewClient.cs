@@ -10,7 +10,7 @@ using UnityEngine.InputSystem;
 
 /// <summary>
 /// 音声で面接を行うクライアント。
-/// 右手トリガーを押している間だけ録音し、離すと
+/// 右コントローラーの A ボタンを押している間だけ録音し、離すと
 /// /api/stt → /api/interview → /api/tts を順に呼んでアバターに喋らせる。
 ///
 /// マイクは PerfectInterviewer が起動したものを共有する（起動を一本化するため）。
@@ -68,8 +68,8 @@ public class VoiceInterviewClient : MonoBehaviour
     public VrmExpressionApplier expressionApplier;
 
     [Header("操作")]
-    [Tooltip("録音ボタン（押している間だけ録音）")]
-    public OVRInput.Button talkButton = OVRInput.Button.PrimaryIndexTrigger;
+    [Tooltip("録音ボタン（押している間だけ録音）。既定は右コントローラーの A ボタン")]
+    public OVRInput.Button talkButton = OVRInput.Button.One;
     public OVRInput.Controller talkController = OVRInput.Controller.RTouch;
     [Tooltip("面接をリセットするボタン（左コントローラー Y）")]
     public OVRInput.Button resetButton = OVRInput.Button.Two;
@@ -84,6 +84,10 @@ public class VoiceInterviewClient : MonoBehaviour
     public float maxRecordSeconds = 45f;
     [Tooltip("これより短い録音は誤操作とみなして送信しない（秒）")]
     public float minRecordSeconds = 0.4f;
+
+    [Header("通信")]
+    [Tooltip("1 リクエストの待ち時間上限（秒）。超えたら諦めて Idle に戻す（無応答で固まるのを防ぐ）")]
+    public int requestTimeoutSeconds = 40;
 
     [Header("状態（読み取り専用）")]
     [SerializeField] private State state = State.Idle;
@@ -103,9 +107,16 @@ public class VoiceInterviewClient : MonoBehaviour
 
     void Reset()
     {
-        interviewer = FindObjectOfType<PerfectInterviewer>();
-        expressionApplier = FindObjectOfType<VrmExpressionApplier>();
+        interviewer = FindObjectOfType<PerfectInterviewer>(true);
+        expressionApplier = FindObjectOfType<VrmExpressionApplier>(true);
         audioSource = GetComponent<AudioSource>();
+    }
+
+    void Awake()
+    {
+        // Git 管理外の設定ファイル（Resources/ServerSettings.json）で接続先が指定されていれば優先する
+        if (!string.IsNullOrEmpty(ServerConfig.ApiBaseUrl))
+            apiBaseUrl = ServerConfig.ApiBaseUrl;
     }
 
     void Start()
@@ -117,6 +128,8 @@ public class VoiceInterviewClient : MonoBehaviour
         }
         if (interviewer == null)
             Debug.LogWarning("[VoiceInterviewClient] PerfectInterviewer が未設定です。マイクを共有できません。");
+        if (expressionApplier == null)
+            expressionApplier = FindObjectOfType<VrmExpressionApplier>(true);
     }
 
     void Update()
@@ -167,6 +180,9 @@ public class VoiceInterviewClient : MonoBehaviour
             return;
         }
 
+        // 他のスクリプトが同じデバイスを Microphone.End していると、録音しても空になる
+        interviewer.EnsureMicRecording();
+
         _recordStartPos = Microphone.GetPosition(interviewer.GetMicName());
         _recordStartTime = Time.time;
         state = State.Recording;
@@ -190,7 +206,7 @@ public class VoiceInterviewClient : MonoBehaviour
 
         if (duration < minRecordSeconds || segment == null || segment.Length == 0)
         {
-            Debug.Log($"[VoiceInterviewClient] 録音が短すぎるため送信しません（{duration:F2}s）");
+            Debug.LogWarning($"[VoiceInterviewClient] 録音が短すぎる／空のため送信しません（{duration:F2}s, samples={segment?.Length ?? 0}）");
             state = State.Idle;
             return;
         }
@@ -274,7 +290,7 @@ public class VoiceInterviewClient : MonoBehaviour
 
         // 表情を適用（ラベルはサーバー側で EmotionManager の一覧に合わせてある）
         if (expressionApplier != null && !string.IsNullOrEmpty(res.expression))
-            expressionApplier.ApplyLabel(res.expression);
+            expressionApplier.ApplyLabel(res.expression, "ai");
 
         // ---- ③ /api/tts ----
         AudioClip speech = null;
@@ -291,15 +307,42 @@ public class VoiceInterviewClient : MonoBehaviour
         }
 
         // ---- ④ 再生（この間はマイク入力を無視して自分の声で頷かないようにする）----
+        yield return CoPlaySpeech(speech);
+        state = State.Idle;
+    }
+
+    /// <summary>
+    /// TTS 音声を再生し、終わるまで待つ。
+    /// 再生が途中で止められた／別の音声に差し替えられた／想定時間を大きく超えた場合も必ず抜ける
+    /// （isPlaying だけを見ていると、ループ再生などで永久に Speaking のまま固まることがある）。
+    /// </summary>
+    private IEnumerator CoPlaySpeech(AudioClip speech)
+    {
         state = State.Speaking;
         if (interviewer != null) interviewer.suppressListening = true;
 
+        audioSource.loop = false; // 中継などで ON のまま残っていても1回だけ再生する
         audioSource.clip = speech;
         audioSource.Play();
-        yield return new WaitWhile(() => audioSource.isPlaying);
+
+        float started = Time.realtimeSinceStartup;
+        float limit = started + speech.length + 3f;
+        while (audioSource.isPlaying && audioSource.clip == speech)
+        {
+            if (Time.realtimeSinceStartup > limit)
+            {
+                Debug.LogWarning($"[VoiceInterviewClient] 再生が想定時間（{speech.length:F1}s）を超えたため打ち切ります。");
+                audioSource.Stop();
+                break;
+            }
+            yield return null;
+        }
+        if (audioSource.clip != speech)
+            Debug.LogWarning("[VoiceInterviewClient] 再生中の音声が別の音声に差し替えられました（途中で止まった可能性）。");
+        else if (Time.realtimeSinceStartup - started < speech.length - 0.3f)
+            Debug.LogWarning($"[VoiceInterviewClient] 再生が途中で止まりました（{Time.realtimeSinceStartup - started:F1}/{speech.length:F1}s）。");
 
         if (interviewer != null) interviewer.suppressListening = false;
-        state = State.Idle;
     }
 
     private IEnumerator CoSpeechToText(byte[] wavBytes, Action<string> onDone)
@@ -312,6 +355,8 @@ public class VoiceInterviewClient : MonoBehaviour
         };
 
         using var req = UnityWebRequest.Post($"{apiBaseUrl}/api/stt", form);
+        req.timeout = requestTimeoutSeconds;
+        ServerConfig.Authorize(req);
         yield return req.SendWebRequest();
 
         if (req.result != UnityWebRequest.Result.Success)
@@ -334,6 +379,8 @@ public class VoiceInterviewClient : MonoBehaviour
         req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
         req.downloadHandler = new DownloadHandlerBuffer();
         req.SetRequestHeader("Content-Type", "application/json");
+        req.timeout = requestTimeoutSeconds;
+        ServerConfig.Authorize(req);
         yield return req.SendWebRequest();
 
         if (req.result != UnityWebRequest.Result.Success)
@@ -355,6 +402,8 @@ public class VoiceInterviewClient : MonoBehaviour
         req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
         req.downloadHandler = new DownloadHandlerBuffer();
         req.SetRequestHeader("Content-Type", "application/json");
+        req.timeout = requestTimeoutSeconds;
+        ServerConfig.Authorize(req);
         yield return req.SendWebRequest();
 
         if (req.result != UnityWebRequest.Result.Success)
@@ -396,6 +445,8 @@ public class VoiceInterviewClient : MonoBehaviour
         req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
         req.downloadHandler = new DownloadHandlerBuffer();
         req.SetRequestHeader("Content-Type", "application/json");
+        req.timeout = requestTimeoutSeconds;
+        ServerConfig.Authorize(req);
         yield return req.SendWebRequest();
 
         if (req.result != UnityWebRequest.Result.Success)
@@ -417,24 +468,33 @@ public class VoiceInterviewClient : MonoBehaviour
         Debug.Log($"[VoiceInterviewClient] 面接開始 set={res.question_set}（想定{durationSeconds:F0}秒）: {res.text}");
 
         if (expressionApplier != null && !string.IsNullOrEmpty(res.expression))
-            expressionApplier.ApplyLabel(res.expression);
+            expressionApplier.ApplyLabel(res.expression, "ai");
 
         // 冒頭のあいさつ＋シード質問1 をアバターに読ませる
         AudioClip speech = null;
         yield return CoTextToSpeech(res.text, c => speech = c);
 
         if (speech != null)
+            yield return CoPlaySpeech(speech);
+
+        state = State.Idle;
+    }
+
+    /// <summary>
+    /// 固まった状態から強制的に待機（Idle）へ戻す。実験者ページの「アバター復旧」から呼ばれる。
+    /// 進行中の通信・再生は打ち切る（サーバーの会話履歴は消さない）。
+    /// </summary>
+    public void ForceIdle()
+    {
+        StopAllCoroutines();
+        if (audioSource != null && audioSource.isPlaying && !audioSource.loop) audioSource.Stop();
+        if (interviewer != null)
         {
-            state = State.Speaking;
-            if (interviewer != null) interviewer.suppressListening = true;
-
-            audioSource.clip = speech;
-            audioSource.Play();
-            yield return new WaitWhile(() => audioSource.isPlaying);
-
-            if (interviewer != null) interviewer.suppressListening = false;
+            interviewer.suppressListening = false;
+            interviewer.EnsureMicRecording();
         }
-
+        _recordStartPos = -1;
+        Debug.LogWarning($"[VoiceInterviewClient] 強制的に Idle に戻しました（直前の状態: {state}）。");
         state = State.Idle;
     }
 
@@ -447,6 +507,8 @@ public class VoiceInterviewClient : MonoBehaviour
     private IEnumerator CoReset()
     {
         using var req = UnityWebRequest.PostWwwForm($"{apiBaseUrl}/api/reset", "");
+        req.timeout = requestTimeoutSeconds;
+        ServerConfig.Authorize(req);
         yield return req.SendWebRequest();
 
         if (req.result == UnityWebRequest.Result.Success)

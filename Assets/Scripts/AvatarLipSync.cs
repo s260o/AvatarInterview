@@ -17,6 +17,8 @@ public class AvatarLipSync : MonoBehaviour
     public AudioSource source;
     [Tooltip("口を動かす VRMBlendShapeProxy。未設定なら子から自動取得")]
     public VRMBlendShapeProxy proxy;
+    [Tooltip("VRM 1.0 のアバター（Vrm10Instance）。設定時はこちらを優先")]
+    public UniVRM10.Vrm10Instance vrm10;
 
     [Header("調整")]
     [Tooltip("これ未満の音量は無音とみなす（環境ノイズ・小音対策）")]
@@ -29,24 +31,35 @@ public class AvatarLipSync : MonoBehaviour
     public float responsiveness = 18f;
 
     private float _value;
+    private AvatarFace _face;
     private readonly float[] _samples = new float[256];
 
     void Reset()
     {
+        vrm10 = GetComponentInChildren<UniVRM10.Vrm10Instance>();
         proxy = GetComponentInChildren<VRMBlendShapeProxy>();
         source = GetComponent<AudioSource>();
     }
 
     void Start()
     {
-        if (proxy == null) proxy = GetComponentInChildren<VRMBlendShapeProxy>();
-        if (proxy == null)
-            Debug.LogWarning("[AvatarLipSync] VRMBlendShapeProxy が見つかりません。口が動きません。");
+        // 未設定なら子から探す（VRM 1.0 を優先）
+        if (proxy == null && vrm10 == null)
+        {
+            vrm10 = GetComponentInChildren<UniVRM10.Vrm10Instance>();
+            if (vrm10 == null) proxy = GetComponentInChildren<VRMBlendShapeProxy>();
+        }
+
+        _face = new AvatarFace(proxy, vrm10);
+        if (_face.IsValid)
+            Debug.Log($"[AvatarLipSync] 口の操作先: {_face.Describe}");
+        else
+            Debug.LogWarning("[AvatarLipSync] アバターが見つかりません（VRM 0.x は proxy、VRM 1.0 は vrm10 を割り当てる）。口が動きません。");
     }
 
     void LateUpdate()
     {
-        if (proxy == null) return;
+        if (_face == null || !_face.IsValid) return;
 
         float target = 0f;
         if (source != null && source.isPlaying)
@@ -62,7 +75,7 @@ public class AvatarLipSync : MonoBehaviour
         if (_value < 0.001f) _value = 0f;
 
         // 口（A）のみ更新。表情は EmotionManager 側が別途 SetValue/Apply する
-        proxy.SetValue(BlendShapePreset.A, _value);
-        proxy.Apply();
+        _face.Set(FaceKey.A, _value);
+        _face.Apply();
     }
 }

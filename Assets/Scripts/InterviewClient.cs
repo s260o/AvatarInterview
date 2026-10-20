@@ -132,7 +132,7 @@ public class InterviewClient : MonoBehaviour
         var res = JsonUtility.FromJson<ApiResponse>(req.downloadHandler.text);
 
         if (expressionApplier != null)
-            expressionApplier.ApplyLabel(res.expression);
+            expressionApplier.ApplyLabel(res.expression, "ai");
 
         AddLog($"Bot: {(showRawInLog ? res.raw : res.text)}");
         _history.Add(new ApiMessage { role = "assistant", content = res.text });

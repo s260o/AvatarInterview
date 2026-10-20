@@ -6,20 +6,31 @@ using UnityEngine;
 
 /// <summary>
 /// 実験条件マネージャ（2×2・被験者内）。
-///   Factor A: 評価主体ラベル（AI / 人間） … 実験者が口頭で教示（本パネルが台詞を提示）
-///   Factor B: 非言語行動（High / Low）     … EmotionManager.ApplyPreset で一括適用
+///   Factor A: 面接官の制御主体についての説明（AI / 人間） … 実験者が口頭で教示（本パネルが台詞を提示）
+///   Factor B: 非言語行動（High / Low）                    … EmotionManager.ApplyPreset で一括適用
+///
+/// 制御方式（controlMode）:
+///   AutoAll（既定・2026/10/20 決定）: 4条件すべてを同じ自動プログラム（音声認識→LLM→音声合成）で進行し、
+///     AI／人間の違いは教示だけにする。質問・声・非言語動作の規則は AI／人間で共通。
+///     資料: 角薫研究所/資料/control_belief_experiment_summary_2026_1020.md
+///   WoZ（旧方式）: 人間条件では評価者がアバターを通して肉声で話す。比較・予備用に残してある。
 ///
 /// 4条件：A=AI×High / B=AI×Low / C=人間×High / D=人間×Low
 /// 提示順はカウンターバランス（参加者を4群に均等配置）。
 /// 各セッション約7分。開始時にサーバーの会話履歴をリセット（/api/reset）。
 ///
 /// ※ 操作パネル(OnGUI)は Editor 限定。実機ビルドでは参加者の視界に評価主体ラベルが
-///   映らないよう描画しない。本番は参加者に見えない画面から実験者が操作すること。
+///   映らないよう描画しない。実機では ExperimentRemoteControl 経由で、
+///   PC ブラウザ（http://サーバー:8001/experimenter）から実験者が操作する。
 /// </summary>
 [DisallowMultipleComponent]
 public class ExperimentConditionManager : MonoBehaviour
 {
+    /// <summary>参加者に説明する制御主体（AI／人間）。AutoAll では説明だけが異なる。</summary>
     public enum Evaluator { AI, Human }
+
+    /// <summary>実際の制御方式。</summary>
+    public enum ControlMode { AutoAll, WoZ }
 
     [Serializable]
     public struct Condition
@@ -74,6 +85,10 @@ public class ExperimentConditionManager : MonoBehaviour
     [Tooltip("カウンターバランス群（1〜4）。提示順が決まる")]
     public int group = 1;
 
+    [Header("制御方式")]
+    [Tooltip("AutoAll: 全条件を同じ自動プログラムで進行し、AI／人間は教示だけ変える（本実験の既定）。\nWoZ: 人間条件は評価者がアバターを通して肉声で話す（旧方式）")]
+    public ControlMode controlMode = ControlMode.AutoAll;
+
     [Header("セッション")]
     [Tooltip("1セッションの想定長（秒）。既定 420 = 7分")]
     public float sessionSeconds = 420f;
@@ -97,12 +112,35 @@ public class ExperimentConditionManager : MonoBehaviour
     public bool IsSessionActive => sessionActive;
     public string CurrentOrder => ORDERS[Mathf.Clamp(group, 1, 4) - 1];
     public float RemainingSeconds => sessionActive ? Mathf.Max(0f, _sessionEndTime - Time.time) : 0f;
+    public int SessionCount => CurrentOrder.Length;
+    public bool AllSessionsDone => !sessionActive && currentIndex >= CurrentOrder.Length - 1;
+    /// <summary>現在（または直前）のセッションの条件。未開始なら null。</summary>
+    public Condition? CurrentCondition =>
+        (_map != null && currentIndex >= 0 && currentIndex < CurrentOrder.Length)
+            ? _map[CurrentOrder[currentIndex]] : (Condition?)null;
+    public static string EvaluatorDisplayName(Evaluator e) => EvaluatorLabel(e);
+    public string InstructionFor(Evaluator e) => InstructionText(e);
+    public bool IsAutoAll => controlMode == ControlMode.AutoAll;
+
+    /// <summary>参加者IDと群を設定し、状態を初期化する（セッション実行中は不可）。</summary>
+    public bool SetParticipant(string id, int newGroup)
+    {
+        if (sessionActive)
+        {
+            Debug.LogWarning("[Experiment] セッション実行中は参加者を変更できません。");
+            return false;
+        }
+        participantId = id;
+        group = Mathf.Clamp(newGroup, 1, 4);
+        ResetParticipant();
+        return true;
+    }
 
     void Reset()
     {
-        emotionManager = FindObjectOfType<VrmExpressionApplier>();
-        voiceClient = FindObjectOfType<VoiceInterviewClient>();
-        humanVoiceRelay = FindObjectOfType<HumanVoiceRelay>();
+        emotionManager = FindObjectOfType<VrmExpressionApplier>(true);
+        voiceClient = FindObjectOfType<VoiceInterviewClient>(true);
+        humanVoiceRelay = FindObjectOfType<HumanVoiceRelay>(true);
     }
 
     void Awake()
@@ -118,9 +156,9 @@ public class ExperimentConditionManager : MonoBehaviour
 
     void Start()
     {
-        if (emotionManager == null) emotionManager = FindObjectOfType<VrmExpressionApplier>();
-        if (voiceClient == null) voiceClient = FindObjectOfType<VoiceInterviewClient>();
-        if (humanVoiceRelay == null) humanVoiceRelay = FindObjectOfType<HumanVoiceRelay>();
+        if (emotionManager == null) emotionManager = FindObjectOfType<VrmExpressionApplier>(true);
+        if (voiceClient == null) voiceClient = FindObjectOfType<VoiceInterviewClient>(true);
+        if (humanVoiceRelay == null) humanVoiceRelay = FindObjectOfType<HumanVoiceRelay>(true);
     }
 
     void Update()
@@ -175,9 +213,11 @@ public class ExperimentConditionManager : MonoBehaviour
         _timeUpNotified = false;
         sessionActive = true;
 
-        Debug.Log($"[Experiment] ▶ セッション {SessionNumber}/4 開始 — 条件 {c.id}（評価主体={EvaluatorLabel(c.evaluator)} / 非言語={c.nonverbal}）");
+        Debug.Log($"[Experiment] ▶ セッション {SessionNumber}/4 開始 — 条件 {c.id}（説明={EvaluatorLabel(c.evaluator)} / 非言語={c.nonverbal} / 制御={controlMode}）");
         Debug.Log($"[Experiment] ★実験者が読み上げる教示: 「{InstructionText(c.evaluator)}」");
-        if (c.evaluator == Evaluator.Human)
+        if (IsAutoAll && c.evaluator == Evaluator.Human)
+            Debug.Log("[Experiment] 人間と説明する条件です（実際は AI と同じ自動進行）。");
+        if (!IsAutoAll && c.evaluator == Evaluator.Human)
         {
             Debug.Log("[Experiment] ⚠ 人間条件です。評価者が映像を観察・採点できる状態にしてから面接を開始してください。");
             Debug.Log("[Experiment] ★評価者が読み上げるシード質問（この順で）:" + SeedQuestionsText());
@@ -210,13 +250,19 @@ public class ExperimentConditionManager : MonoBehaviour
     private void ApplyCondition(Condition c)
     {
         // Factor B: 非言語プリセットを一括適用（PerfectInterviewer・UdpReceiver へ伝播）
+        // アバターは配置完了まで非アクティブなので、ここでも非アクティブを含めて探し直す
+        if (emotionManager == null) emotionManager = FindObjectOfType<VrmExpressionApplier>(true);
         if (emotionManager != null)
+        {
             emotionManager.ApplyPreset(c.nonverbal, applyToOthers: true);
+            Debug.Log($"[Experiment] 非言語プリセット {c.nonverbal} を適用しました（{emotionManager.name}）。");
+        }
         else
-            Debug.LogWarning("[Experiment] emotionManager 未設定のため非言語プリセットを適用できません。");
+            Debug.LogError("[Experiment] VrmExpressionApplier が見つからないため非言語プリセットを適用できません。");
 
-        // Factor A: 評価主体に応じて面接の駆動経路を切り替える
-        bool human = (c.evaluator == Evaluator.Human);
+        // Factor A: AutoAll では AI／人間で同じ自動進行にする（違いは教示だけ）。
+        // WoZ のときだけ、人間条件で評価者の肉声に切り替える。
+        bool human = !IsAutoAll && (c.evaluator == Evaluator.Human);
 
         if (voiceClient != null)
         {
@@ -272,10 +318,25 @@ public class ExperimentConditionManager : MonoBehaviour
 
     private static string EvaluatorLabel(Evaluator e) => e == Evaluator.AI ? "AI" : "人間";
 
-    /// <summary>実験者が読み上げる評価主体の教示。AI/人間で評価主体だけが異なり、他は同一。</summary>
-    private static string InstructionText(Evaluator e) => e == Evaluator.AI
-        ? "この回の面接では、あなたの回答内容・話し方・声の調子・表情などを、AI（人工知能）が自動で分析し、評価します。準備ができたら、右手のトリガーを押して話し始めてください。"
-        : "この回の面接では、あなたの回答内容・話し方・声の調子・表情などを、別室にいる評価者（人）が、映像を通してその場で見て評価します。準備ができたら、右手のトリガーを押して話し始めてください。";
+    // AutoAll の教示（文案・未確定）。AI／人間で「誰が面接官を制御しているか」だけが異なり、
+    // 評価についての説明は両条件で共通にする（制御主体と評価主体を混同しないため）。
+    // 最終文言は指導教員と確定すること（control_belief_experiment_summary_2026_1020.md 99行目）。
+    private const string CONTROL_INSTRUCTION_AI =
+        "この回の面接官は、AI（人工知能）によって制御されています。";
+    private const string CONTROL_INSTRUCTION_HUMAN =
+        "この回の面接官は、別室にいる人によって制御されています。";
+    private const string CONTROL_INSTRUCTION_COMMON =
+        "面接での回答内容や話し方などは、面接の後で評価されます。準備ができたら、右手のAボタンを押して話し始めてください。";
+
+    /// <summary>実験者が読み上げる教示。</summary>
+    private string InstructionText(Evaluator e) => IsAutoAll
+        ? (e == Evaluator.AI ? CONTROL_INSTRUCTION_AI : CONTROL_INSTRUCTION_HUMAN) + CONTROL_INSTRUCTION_COMMON
+        : WozInstructionText(e);
+
+    /// <summary>旧方式（WoZ）の教示。AI/人間で評価主体だけが異なり、他は同一。</summary>
+    private static string WozInstructionText(Evaluator e) => e == Evaluator.AI
+        ? "この回の面接では、あなたの回答内容・話し方・声の調子・表情などを、AI（人工知能）が自動で分析し、評価します。準備ができたら、右手のAボタンを押して話し始めてください。"
+        : "この回の面接では、あなたの回答内容・話し方・声の調子・表情などを、別室にいる評価者（人）が、映像を通してその場で見て評価します。準備ができたら、右手のAボタンを押して話し始めてください。";
 
     // ============================================================
     // ログ（CSV）
@@ -293,9 +354,9 @@ public class ExperimentConditionManager : MonoBehaviour
             using (var sw = new StreamWriter(path, append: true, new UTF8Encoding(true)))
             {
                 if (isNew)
-                    sw.WriteLine("participant_id,group,order,session_index,condition,evaluator,nonverbal,start_utc,end_utc,duration_sec");
+                    sw.WriteLine("participant_id,group,order,session_index,condition,label,nonverbal,control_mode,start_utc,end_utc,duration_sec");
                 double dur = (endUtc - startUtc).TotalSeconds;
-                sw.WriteLine($"{participantId},{group},{CurrentOrder},{SessionNumber},{c.id},{c.evaluator},{c.nonverbal},{startUtc:o},{endUtc:o},{dur:F1}");
+                sw.WriteLine($"{participantId},{group},{CurrentOrder},{SessionNumber},{c.id},{c.evaluator},{c.nonverbal},{controlMode},{startUtc:o},{endUtc:o},{dur:F1}");
             }
             Debug.Log($"[Experiment] ログ保存: {path}");
         }
@@ -326,7 +387,7 @@ public class ExperimentConditionManager : MonoBehaviour
         {
             Condition c = _map != null ? _map[order[currentIndex]] : default;
             GUILayout.Label($"セッション: {SessionNumber} / {order.Length}");
-            GUILayout.Label($"条件: <b>{c.id}</b>  評価主体: <b>{EvaluatorLabel(c.evaluator)}</b>  非言語: <b>{c.nonverbal}</b>");
+            GUILayout.Label($"条件: <b>{c.id}</b>  説明: <b>{EvaluatorLabel(c.evaluator)}</b>  非言語: <b>{c.nonverbal}</b>  制御: {controlMode}");
 
             if (sessionActive)
             {
@@ -341,7 +402,7 @@ public class ExperimentConditionManager : MonoBehaviour
             GUILayout.Label(InstructionText(c.evaluator), GUI.skin.textArea);
 
             // 人間条件（WoZ）では、評価者が読む質問をその場で確認できるようにする
-            if (c.evaluator == Evaluator.Human)
+            if (!IsAutoAll && c.evaluator == Evaluator.Human)
             {
                 GUILayout.Space(4);
                 GUILayout.Label($"<b>評価者が読む質問（{SessionNumber}回目）</b>");

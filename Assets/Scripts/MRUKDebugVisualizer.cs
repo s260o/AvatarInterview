@@ -4,7 +4,7 @@ using UnityEngine;
 
 /// <summary>
 /// MRUK が認識したアンカーを色付き球で可視化するデバッグスクリプト。
-/// 右コントローラーの A ボタンで表示/非表示を切り替える。
+/// 表示/非表示の切り替え・再スキャンはインスペクタの右クリックメニューから行う（A ボタンは録音に使用）。
 /// 色の凡例: 緑=TABLE 灰=FLOOR 青=WALL 黄=COUCH 紫=STORAGE 水=OTHER 橙=GlobalMesh
 /// </summary>
 public class MRUKDebugVisualizer : MonoBehaviour
@@ -33,29 +33,9 @@ public class MRUKDebugVisualizer : MonoBehaviour
             MRUK.Instance.RegisterSceneLoadedCallback(Visualize);
     }
 
-    void Update()
-    {
-        // 右コントローラー A ボタンで表示/非表示トグル
-        if (OVRInput.GetDown(OVRInput.Button.One, OVRInput.Controller.RTouch))
-            Toggle();
-
-        // 右コントローラー A 長押し (1 秒) で再スキャン
-        if (OVRInput.Get(OVRInput.Button.One, OVRInput.Controller.RTouch))
-        {
-            _holdTime += Time.deltaTime;
-            if (_holdTime >= 1.0f)
-            {
-                _holdTime = 0f;
-                Visualize();
-            }
-        }
-        else
-        {
-            _holdTime = 0f;
-        }
-    }
-
-    private float _holdTime;
+    // 右コントローラーの A ボタンは録音（VoiceInterviewClient の Hold-to-Talk）に使うため、
+    // ここではコントローラー操作を割り当てない。表示の切り替え・再スキャンは
+    // インスペクタの右クリックメニュー（Toggle / Visualize）から行う。
 
     void OnGUI()
     {
@@ -83,6 +63,7 @@ public class MRUKDebugVisualizer : MonoBehaviour
             "凡例: 緑=TABLE 灰=FLOOR 青=WALL 黄=COUCH 紫=STORAGE 水=OTHER", legend);
     }
 
+    [ContextMenu("再スキャンして表示 (Visualize)")]
     public void Visualize()
     {
         Clear();
@@ -135,6 +116,7 @@ public class MRUKDebugVisualizer : MonoBehaviour
         return Color.white;
     }
 
+    [ContextMenu("表示/非表示の切り替え (Toggle)")]
     private void Toggle()
     {
         _visible = !_visible;

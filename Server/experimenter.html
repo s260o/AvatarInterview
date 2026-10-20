@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>実験者パネル</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --text: #1d2330; --muted: #6b7280; --line: #e3e6eb;
+    --accent: #2563eb; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.6 system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+           padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--line);
+           position: sticky; top: 0; z-index: 1; }
+  header h1 { font-size: 17px; margin: 0; }
+  .conn { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--bad); }
+  .conn.on .dot { background: var(--ok); }
+  main { max-width: 1100px; margin: 0 auto; padding: 18px 16px 40px;
+         display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .card h2 { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; letter-spacing: .04em; }
+  .wide { grid-column: 1 / -1; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  label { font-size: 13px; color: var(--muted); }
+  input, select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); }
+  input { width: 8em; }
+  button { font: inherit; font-weight: 600; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line);
+           background: #fff; color: var(--text); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #b8bec8; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-size: 17px; padding: 12px 24px; }
+  button.danger { background: var(--bad); border-color: var(--bad); color: #fff; font-size: 17px; padding: 12px 24px; }
+  button.confirming { outline: 3px solid #fca5a5; }
+  .order { display: flex; gap: 6px; }
+  .order span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 8px;
+                border: 1px solid var(--line); font-weight: 700; color: var(--muted); }
+  .order span.done { background: #e5e7eb; }
+  .order span.current { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-weight: 600; }
+  .big { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .big.over { color: var(--bad); }
+  .instruction { font-size: 18px; line-height: 1.8; background: #f8fafc; border-left: 4px solid var(--accent);
+                 padding: 10px 14px; border-radius: 4px; margin: 0; }
+  ol.q { margin: 0; padding-left: 1.4em; font-size: 17px; line-height: 1.9; }
+  .badge { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 13px; font-weight: 600;
+           background: #eef2ff; color: var(--accent); }
+  .badge.human { background: #fef3c7; color: var(--warn); }
+  .muted { color: var(--muted); }
+  .msg { margin-top: 10px; font-size: 14px; min-height: 1.6em; }
+  .msg.err { color: var(--bad); }
+  .utter { margin: 0 0 6px; }
+  .utter b { display: inline-block; width: 4.5em; color: var(--muted); font-weight: 600; }
+  .alert { grid-column: 1 / -1; background: #fef2f2; border: 1px solid #fecaca; color: var(--bad);
+           border-radius: 10px; padding: 10px 16px; font-weight: 600; }
+  .meter { height: 10px; background: #e5e7eb; border-radius: 5px; overflow: hidden; flex: 1; min-width: 120px; }
+  .meter > div { height: 100%; width: 0; background: var(--ok); transition: width .06s linear; }
+  button.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .status-list { margin: 10px 0 0; padding: 0; list-style: none; font-size: 14px; }
+  .status-list li { display: flex; gap: 8px; align-items: center; }
+  .status-list .dot { width: 9px; height: 9px; flex: none; background: #d1d5db; }
+  .status-list .dot.ok { background: var(--ok); }
+  .status-list .dot.warn { background: #d97706; }
+  .expr-group { margin: 0 0 10px; }
+  .expr-group h3 { font-size: 12px; color: var(--muted); font-weight: 600; margin: 0 0 4px; }
+  .expr-group .row { gap: 6px; }
+  .expr-group button { padding: 6px 12px; font-size: 14px; }
+  .expr-group button.current { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #log { font: 12px/1.6 ui-monospace, Consolas, monospace; max-height: 180px; overflow: auto; margin: 0;
+         background: #f8fafc; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AvatarInterview 実験者パネル</h1>
+  <div id="conn" class="conn"><span class="dot"></span><span id="connText">Quest 未接続</span></div>
+</header>
+
+<main>
+  <div class="alert" id="alert" hidden></div>
+
+  <!-- セッション操作 -->
+  <section class="card">
+    <h2>セッション操作</h2>
+    <div class="row" style="margin-bottom:12px">
+      <div class="order" id="order"></div>
+      <span class="muted" id="sessionText">-</span>
+    </div>
+    <div class="row">
+      <button class="primary" id="btnStart">次のセッション開始</button>
+      <button class="danger" id="btnEnd">セッション終了</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnRecover">アバター復旧</button>
+      <span class="muted" style="font-size:13px">読み上げや録音が止まって固まったときに、アバターを待機状態へ戻します</span>
+    </div>
+    <div class="msg" id="cmdMsg"></div>
+  </section>
+
+  <!-- 残り時間・現在の条件 -->
+  <section class="card">
+    <h2>現在の条件</h2>
+    <div class="row" style="justify-content:space-between; align-items:flex-start">
+      <dl class="kv">
+        <dt>条件</dt><dd id="cond">-</dd>
+        <dt id="factorALabel">説明（制御主体）</dt><dd id="evaluator">-</dd>
+        <dt>非言語</dt><dd id="nonverbal">-</dd>
+        <dt>アバター</dt><dd id="voiceState">-</dd>
+      </dl>
+      <div style="text-align:right">
+        <div class="muted" style="font-size:13px">残り時間</div>
+        <div class="big" id="remain">--:--</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 教示 -->
+  <section class="card wide">
+    <h2>読み上げる教示</h2>
+    <p class="instruction" id="instruction">セッションを開始すると表示されます。</p>
+  </section>
+
+  <!-- 人間条件のシード質問 -->
+  <section class="card wide" id="seedCard" hidden>
+    <h2>評価者が読む質問（この順で）</h2>
+    <ol class="q" id="seeds"></ol>
+    <p class="muted" style="margin:8px 0 0">各質問のあと、内容を掘り下げる追質問を入れて時間を調整する</p>
+  </section>
+
+  <!-- 表情 -->
+  <section class="card wide" id="exprCard">
+    <h2>アバターの表情（オペレーター操作）<span id="exprPolicy" style="font-weight:400; margin-left:8px"></span></h2>
+    <p class="muted" id="exprNote" style="margin:0 0 6px; font-size:13px">
+      人間条件では、参加者の話を受け止める傾聴反応をここから出してください。数秒すると自動で落ち着いた顔に戻ります。
+    </p>
+    <ul class="muted" id="exprGuide" style="margin:0 0 10px; padding-left:1.2em; font-size:13px">
+      <li>表情は回答の良し悪しを伝える合図にしない（賞賛・批判・困惑は出さない）</li>
+      <li>普段は「穏やか／穏やかな笑顔」、具体的に話してくれたら「興味津々」</li>
+      <li>つらい話・失敗の話は「真剣／優しい」（笑顔にしない）、言葉に詰まっているときは「受容的」</li>
+      <li>押す回数の目安: 参加者が答え終わるごとに1回（AI 条件の頻度にそろえる）</li>
+    </ul>
+    <div id="exprButtons"></div>
+    <p class="muted" style="margin:4px 0 0; font-size:13px">現在の表情: <b id="curExpr">-</b> <span id="lastExpr"></span></p>
+  </section>
+
+  <!-- 評価者マイク（WoZ 方式のときだけ表示） -->
+  <section class="card wide" id="micCard" hidden>
+    <h2>評価者マイク（人間条件でアバターの声として再生）</h2>
+    <div class="row">
+      <label for="micSelect">マイク</label>
+      <select id="micSelect" style="max-width:20em"><option value="">既定のマイク</option></select>
+      <button id="btnMic">マイク ON</button>
+      <div class="meter"><div id="micLevel"></div></div>
+    </div>
+    <ul class="status-list">
+      <li><span class="dot" id="dotSend"></span><span id="txtSend">送信: 停止中</span></li>
+      <li><span class="dot" id="dotRecv"></span><span id="txtRecv">Quest 受信: -</span></li>
+      <li><span class="dot" id="dotPlay"></span><span id="txtPlay">アバターでの再生: -</span></li>
+    </ul>
+    <p class="muted" style="margin:8px 0 0; font-size:13px">
+      マイクは ON のままで構いません。アバターから再生されるのは人間条件のセッション中だけです（AI条件では Quest 側で破棄）。
+      ブラウザの制限により、マイクを使うにはこのページをサーバーPC上で <b>http://localhost:8001/experimenter</b> として開いてください。
+      参加者に評価者の生声が届かないよう、別室での操作やヘッドホンの使用をおすすめします。
+    </p>
+  </section>
+
+  <!-- 直近の発話 -->
+  <section class="card">
+    <h2>直近の発話（AI条件）</h2>
+    <p class="utter"><b>参加者</b><span id="userText" class="muted">-</span></p>
+    <p class="utter"><b>アバター</b><span id="botText" class="muted">-</span></p>
+  </section>
+
+  <!-- 参加者設定 -->
+  <section class="card">
+    <h2>参加者設定</h2>
+    <div class="row" style="margin-bottom:10px">
+      <label>現在</label><span id="curParticipant" style="font-weight:600">-</span>
+    </div>
+    <div class="row">
+      <label for="pid">参加者ID</label><input id="pid" value="P01">
+      <label for="grp">群</label>
+      <select id="grp"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+      <button id="btnSet">設定</button>
+      <button id="btnReset">進行リセット</button>
+    </div>
+    <p class="muted" style="margin:8px 0 0; font-size:13px">群で提示順が決まります（1: ABDC / 2: BCAD / 3: CDBA / 4: DACB）。セッション実行中は変更できません。</p>
+  </section>
+
+  <section class="card wide">
+    <h2>操作ログ</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let quest = null;
+let connected = false;
+let lastResultId = 0;
+
+function log(line) {
+  const t = new Date().toLocaleTimeString("ja-JP");
+  $("log").textContent = `[${t}] ${line}\n` + $("log").textContent;
+}
+
+function showMsg(text, isErr = false) {
+  $("cmdMsg").textContent = text;
+  $("cmdMsg").className = "msg" + (isErr ? " err" : "");
+}
+
+async function send(type, extra = {}) {
+  try {
+    const res = await fetch("/api/experiment/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, ...extra }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    log(`送信 #${body.command.id} ${type}` + (connected ? "" : "（Quest 未接続: 接続後に実行されます）"));
+    showMsg(`送信しました（#${body.command.id}）。Quest の応答を待っています…`);
+  } catch (e) {
+    showMsg(`送信に失敗: ${e.message}`, true);
+    log(`送信失敗 ${type}: ${e.message}`);
+  }
+}
+
+// 取り返しのつかない操作は、ページ内で2回押して確定する（ダイアログは使わない）
+function confirmTwice(btn, label, action) {
+  if (btn.dataset.armed) {
+    clearTimeout(btn._timer);
+    delete btn.dataset.armed;
+    btn.classList.remove("confirming");
+    btn.textContent = label;
+    action();
+    return;
+  }
+  btn.dataset.armed = "1";
+  btn.classList.add("confirming");
+  btn.textContent = "もう一度押して確定";
+  btn._timer = setTimeout(() => {
+    delete btn.dataset.armed;
+    btn.classList.remove("confirming");
+    btn.textContent = label;
+  }, 3000);
+}
+
+$("btnStart").onclick = () => send("start_next");
+$("btnEnd").onclick = (e) => confirmTwice(e.currentTarget, "セッション終了", () => send("end_session"));
+$("btnSet").onclick = () => {
+  const participant_id = $("pid").value.trim();
+  if (!participant_id) { showMsg("参加者IDを入力してください。", true); return; }
+  send("set_participant", { participant_id, group: Number($("grp").value) });
+};
+$("btnReset").onclick = (e) => confirmTwice(e.currentTarget, "進行リセット", () => send("reset_participant"));
+$("btnRecover").onclick = () => send("recover_avatar");
+
+const fmtTime = (sec) => {
+  const s = Math.max(0, Math.floor(sec));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+};
+
+function render(st) {
+  connected = st.connected;
+  $("conn").classList.toggle("on", connected);
+  $("connText").textContent = connected
+    ? `Quest 接続中${st.quest && st.quest.device ? `（${st.quest.device}）` : ""}`
+    : st.last_seen_sec == null ? "Quest 未接続" : `Quest 応答なし（${st.last_seen_sec}秒前）`;
+
+  quest = st.quest;
+  const q = quest || {};
+  const active = !!q.session_active;
+
+  // 提示順
+  const order = q.order || "----";
+  const idx = (q.session_number || 0) - 1;
+  $("order").innerHTML = [...order].map((c, i) => {
+    const cls = i === idx ? "current" : i < idx || (i === idx && !active) ? "done" : "";
+    return `<span class="${cls}">${c}</span>`;
+  }).join("");
+  $("sessionText").textContent = !quest ? "Quest からの報告待ち"
+    : q.session_number > 0
+      ? `セッション ${q.session_number} / ${q.session_count}${active ? "（実行中）" : "（終了）"}${q.all_sessions_done ? " — 全セッション完了" : ""}`
+      : "未開始";
+
+  $("btnStart").disabled = !connected || active || q.all_sessions_done;
+  $("btnStart").textContent = q.session_number > 0 ? "次のセッション開始" : "最初のセッション開始";
+  $("btnEnd").disabled = !connected || !active;
+  $("btnSet").disabled = !connected || active;
+  $("btnReset").disabled = !connected || active;
+  $("btnRecover").disabled = !connected;
+
+  // 警告
+  const alerts = [];
+  if (quest && connected && q.mic_recording === false)
+    alerts.push("参加者マイクが停止しています。録音できません（［アバター復旧］で再起動を試みます）。");
+  if (active && q.nonverbal && q.avatar_level && q.nonverbal !== q.avatar_level)
+    alerts.push(`非言語条件は ${q.nonverbal} ですが、アバター側は ${q.avatar_level} のままです。条件が正しく反映されていません。`);
+  const stuck = trackStuck(q.voice_state);
+  if (connected && stuck > 60)
+    alerts.push(`アバターが「${q.voice_state}」のまま ${Math.floor(stuck)} 秒経過しています。固まっている場合は［アバター復旧］を押してください。`);
+
+  // 条件
+  const isHuman = q.evaluator === "人間";
+  // auto: 全条件を同じ自動プログラムで進行し、AI／人間は教示だけ変える（本実験の方式）
+  // woz : 人間条件は評価者が肉声で話す（旧方式）
+  const auto = q.control_mode !== "woz";
+  const wozHuman = isHuman && !auto;
+  $("factorALabel").textContent = auto ? "説明（制御主体）" : "評価主体";
+  $("cond").textContent = q.condition_id && q.condition_id !== "-" ? q.condition_id : "-";
+  $("evaluator").innerHTML = !q.evaluator ? "-"
+    : `<span class="badge ${isHuman ? "human" : ""}">${q.evaluator}</span>` +
+      (auto ? `<span class="muted" style="font-weight:400"> と説明${isHuman ? "（実際は自動）" : ""}</span>` : "");
+  $("nonverbal").textContent = q.nonverbal || "-";
+  $("voiceState").textContent = !quest ? "-"
+    : wozHuman ? (q.human_relay_active ? "評価者音声を中継中" : "中継停止")
+    : `${q.voice_state || "-"}${q.interview_finished ? "（面接終了）" : ""}`;
+
+  $("remain").textContent = active ? fmtTime(q.remaining_seconds) : "--:--";
+  $("remain").classList.toggle("over", active && q.remaining_seconds <= 0);
+
+  $("instruction").textContent = q.instruction || "セッションを開始すると表示されます。";
+  const seeds = q.seed_questions || [];
+  $("seedCard").hidden = !(wozHuman && seeds.length);
+  $("seeds").innerHTML = seeds.map((s) => `<li>${s.replace(/</g, "&lt;")}</li>`).join("");
+
+  $("userText").textContent = q.last_user_text || "-";
+  $("botText").textContent = q.last_bot_text || "-";
+  $("curParticipant").textContent = quest ? `${q.participant_id}（群${q.group}・順 ${q.order}）` : "-";
+
+  // 表情
+  const low = (q.avatar_level || q.nonverbal) === "Low";
+  // 全条件自動モードでは手動の表情操作をしない（AI／人間で手動反応の差を入れないため）
+  $("exprButtons").hidden = auto;
+  $("exprGuide").hidden = auto;
+  $("micCard").hidden = !quest || auto;
+  document.querySelectorAll("#exprButtons button").forEach((b) => {
+    b.disabled = !connected;
+    b.classList.toggle("current", b.dataset.label === q.current_expression);
+  });
+  $("curExpr").textContent = !quest ? "-"
+    : low ? "無表情（Low 条件）"
+    : q.current_expression ? q.current_expression
+    : "落ち着いた顔（待機中）";
+  // 直近の要求と、実際に表示された結果を分けて見せる
+  const srcName = { ai: "AI", manual: "手動", editor: "エディタ" }[q.expression_source] || "";
+  $("lastExpr").textContent = !q.expression_event_id ? ""
+    : `／ 直近の要求: ${q.expression_requested || "-"}（${srcName}）→ ` +
+      (q.expression_suppressed ? "Low のため無表情" : q.expression_replaced ? `使えない表情のため「${q.expression_applied}」で表示` : `「${q.expression_applied}」を表示`);
+  $("exprNote").textContent = auto
+    ? (low ? "Low 条件: 表情は無表情に固定されます。"
+           : "全条件自動モード: 表情は AI／人間の説明に関係なく同じ自動処理で選ばれます（手動操作はしません）。")
+    : low
+    ? "Low 条件: 表情は無表情に固定されます（押しても表情は出ません）。"
+    : isHuman
+      ? "人間条件: 参加者の話を受け止める傾聴反応をここから出してください。数秒すると自動で落ち着いた顔に戻ります。"
+      : "AI 条件: 表情は AI が自動で選びます（同じ傾聴反応の方針）。必要なときだけ手動で上書きできます。";
+  if (quest && q.expression_policy && exprPolicy && q.expression_policy !== exprPolicy)
+    alerts.push(`表情の方針がサーバー（${exprPolicy}）と Quest（${q.expression_policy}）で異なります。Unity アプリを更新してください。`);
+
+  $("alert").hidden = alerts.length === 0;
+  $("alert").innerHTML = alerts.map((a) => `<div>${a}</div>`).join("");
+
+  // 評価者音声
+  const v = st.voice || {};
+  setStatus("dotSend", "txtSend", mic ? (v.sender_connected ? "ok" : "warn") : "",
+    mic ? (v.sender_connected ? "送信: サーバーへ送信中" : "送信: サーバーへの接続待ち") : "送信: 停止中");
+  setStatus("dotRecv", "txtRecv", q.voice_stream_connected ? "ok" : (connected ? "warn" : ""),
+    !connected ? "Quest 受信: Quest 未接続"
+      : q.voice_stream_connected ? "Quest 受信: 接続中"
+      : "Quest 受信: 未接続（人間条件のセッション開始時に接続します）");
+  const heard = q.voice_last_heard_seconds;
+  setStatus("dotPlay", "txtPlay", q.human_relay_active ? "ok" : (wozHuman && active ? "warn" : ""),
+    q.human_relay_active
+      ? `アバターでの再生: 中継中（バッファ ${Math.round((q.voice_buffer_seconds || 0) * 1000)}ms` +
+        (heard >= 0 && heard < 1 ? "・評価者の声を再生中）" : "）")
+      : wozHuman && active ? "アバターでの再生: 停止中（中継が開始されていません）"
+      : "アバターでの再生: 停止中（人間条件のセッション中のみ再生）");
+
+  // Quest がコマンドを実行した結果
+  if (q.last_command_id && q.last_command_id !== lastResultId) {
+    lastResultId = q.last_command_id;
+    const ok = (q.last_command_result || "").startsWith("OK");
+    showMsg(`#${q.last_command_id}: ${q.last_command_result}`, !ok);
+    log(`Quest 実行 #${q.last_command_id}: ${q.last_command_result}`);
+  }
+}
+
+function setStatus(dotId, txtId, level, text) {
+  $(dotId).className = "dot" + (level ? " " + level : "");
+  $(txtId).textContent = text;
+}
+
+// アバターが Processing / Speaking のまま固まっていないかを見る（同じ状態の継続秒数）
+let stuckState = null, stuckSince = 0;
+function trackStuck(state) {
+  if (state !== stuckState) { stuckState = state; stuckSince = performance.now(); }
+  return (state === "Processing" || state === "Speaking") ? (performance.now() - stuckSince) / 1000 : 0;
+}
+
+// ============================================================
+// 評価者マイク → サーバー（/ws/voice/send）
+//   16kHz・16bit・mono の PCM を 20ms ごとに送る（Quest の HumanVoiceRelay と形式を一致させる）
+// ============================================================
+const TARGET_RATE = 16000;
+const CHUNK = 320; // 20ms
+let mic = null;
+
+async function listMics() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const sel = $("micSelect"), keep = sel.value;
+  const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  sel.innerHTML = `<option value="">既定のマイク</option>` + devices
+    .filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default")
+    .map((d) => `<option value="${esc(d.deviceId)}">${esc(d.label || "マイク")}</option>`).join("");
+  sel.value = keep;
+}
+
+async function startMic() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showMsg("このページではマイクを使えません。サーバーPCで http://localhost:8001/experimenter を開いてください。", true);
+    return;
+  }
+  const deviceId = $("micSelect").value;
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+    },
+  });
+  const ctx = new AudioContext();
+  const code = `class Cap extends AudioWorkletProcessor {
+    process(inputs) { const ch = inputs[0] && inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; }
+  } registerProcessor("pcm-capture", Cap);`;
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type: "application/javascript" })));
+  const src = ctx.createMediaStreamSource(stream);
+  const node = new AudioWorkletNode(ctx, "pcm-capture");
+  const mute = ctx.createGain();
+  mute.gain.value = 0; // 自分のスピーカーには出さない（処理を回すためだけに出力へ繋ぐ）
+  src.connect(node).connect(mute).connect(ctx.destination);
+
+  const m = { stream, ctx, ws: null, pending: [], pos: 0, peak: 0, closed: false };
+  const ratio = ctx.sampleRate / TARGET_RATE;
+
+  node.port.onmessage = (e) => {
+    const input = e.data;
+    // 線形補間で 16kHz に間引く（m.pos は入力上の読み位置。ブロックをまたいで持ち越す）
+    while (m.pos < input.length - 1) {
+      const i = Math.floor(m.pos), f = m.pos - i;
+      const s = input[i] * (1 - f) + input[i + 1] * f;
+      m.pending.push(s);
+      m.peak = Math.max(m.peak, Math.abs(s));
+      m.pos += ratio;
+    }
+    m.pos -= input.length;
+    while (m.pending.length >= CHUNK) {
+      const block = m.pending.splice(0, CHUNK);
+      if (m.ws && m.ws.readyState === WebSocket.OPEN) {
+        const pcm = new Int16Array(CHUNK);
+        for (let k = 0; k < CHUNK; k++) pcm[k] = Math.max(-1, Math.min(1, block[k])) * 0x7fff;
+        m.ws.send(pcm.buffer);
+      }
+    }
+  };
+
+  const connect = () => {
+    if (m.closed) return;
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/voice/send`);
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => log("評価者マイク: サーバーへの送信を開始");
+    ws.onclose = (ev) => {
+      if (m.closed) return;
+      if (ev.code === 4000) { showMsg("別のタブ／PCが既に評価者マイクを送信中です。", true); stopMic(); return; }
+      setTimeout(connect, 1000); // 切れたら再接続
+    };
+    m.ws = ws;
+  };
+  connect();
+
+  const meter = () => {
+    if (m.closed) return;
+    $("micLevel").style.width = Math.min(100, m.peak * 250) + "%";
+    m.peak *= 0.6;
+    requestAnimationFrame(meter);
+  };
+  meter();
+
+  mic = m;
+  $("btnMic").textContent = "マイク OFF";
+  $("btnMic").classList.add("on");
+  listMics(); // 許可後はデバイス名が取れる
+}
+
+function stopMic() {
+  if (!mic) return;
+  mic.closed = true;
+  if (mic.ws) mic.ws.close();
+  mic.stream.getTracks().forEach((t) => t.stop());
+  mic.ctx.close();
+  mic = null;
+  $("micLevel").style.width = "0";
+  $("btnMic").textContent = "マイク ON";
+  $("btnMic").classList.remove("on");
+  log("評価者マイク: 停止");
+}
+
+$("btnMic").onclick = async () => {
+  if (mic) { stopMic(); return; }
+  try { await startMic(); }
+  catch (e) { showMsg(`マイクを開始できません: ${e.message}`, true); log(`マイク開始失敗: ${e.message}`); }
+};
+listMics();
+
+// 表情ボタン（ラベルはサーバーの EXPRESSION_GROUPS から取得し、Unity 側と必ず一致させる）
+let exprPolicy = "";
+async function loadExpressions() {
+  try {
+    const res = await fetch("/api/experiment/expressions");
+    const { groups, policy } = await res.json();
+    exprPolicy = policy || "";
+    $("exprPolicy").textContent = exprPolicy ? `方針: ${exprPolicy}` : "";
+    const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    $("exprButtons").innerHTML = Object.entries(groups).map(([name, labels]) =>
+      `<div class="expr-group"><h3>${esc(name)}</h3><div class="row">` +
+      labels.map((l) => `<button data-label="${esc(l)}" disabled>${esc(l)}</button>`).join("") +
+      `</div></div>`).join("");
+    document.querySelectorAll("#exprButtons button").forEach((b) => {
+      b.onclick = () => send("expression", { label: b.dataset.label });
+    });
+  } catch (e) {
+    $("exprButtons").textContent = `表情一覧を取得できません: ${e.message}`;
+  }
+}
+loadExpressions();
+
+async function poll() {
+  try {
+    const res = await fetch("/api/experiment/status", { cache: "no-store" });
+    render(await res.json());
+  } catch (e) {
+    $("conn").classList.remove("on");
+    $("connText").textContent = "サーバーに接続できません";
+  } finally {
+    setTimeout(poll, 500);
+  }
+}
+poll();
+</script>
+</body>
+</html>
